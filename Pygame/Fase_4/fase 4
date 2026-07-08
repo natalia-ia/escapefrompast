@@ -1,16 +1,14 @@
 """
 =====================================================================
- ESCAPE ROOM: A MÁQUINA DE TURING (1936) - PROTÓTIPO DE FASE
+Fase_4: A MÁQUINA DE TURING (1936) 
 =====================================================================
-Autora do design/lógica: Nat (BIA - UFCAT)
-Linguagem: Python 3 | Biblioteca: pygame
 
 CONTEXTO DA FASE
 -----------------
 Estamos em 1936. O jogador (a) acorda em uma sala e encontra, ao lado,
 a Máquina de Turing. Para sair, precisa decifrar um código gerado pela
 máquina (uma "fita" com blocos de 0s e 1s) dentro de um tempo limite
-de 10 minutos.
+de 5 minutos.
 
 ESTRUTURA DO JOGO (máquina de estados)
 ---------------------------------------
@@ -52,8 +50,8 @@ import pygame
 LARGURA, ALTURA = 960, 600
 FPS = 60
 
-# Tempo total da fase, em segundos (10 minutos)
-TEMPO_LIMITE_SEGUNDOS = 1 * 60
+# Tempo total da fase, em segundos (5 minutos)
+TEMPO_LIMITE_SEGUNDOS = 5 * 60
 
 # Cores utilitárias (RGB) usadas em textos e placeholders
 BRANCO      = (245, 245, 240)
