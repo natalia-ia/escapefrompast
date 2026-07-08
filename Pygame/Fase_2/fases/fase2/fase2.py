@@ -3,10 +3,10 @@ Fase 2 — As Máquinas Mecânicas (1800-1840)
 
 A cena é a oficina de Babbage. O jogador anda com WASD/setas ou clique do
 mouse e precisa achar os 4 pontos de coleta escondidos pela sala (baú, pote
-e caixote, que abrem ao clicar, mais uma engrenagem solta saindo de uma
-fresta do assoalho) para juntar uma engrenagem de cada um. Depois de coletar
-as 4, a planta na parede libera o puzzle "ligar a máquina"
-(babbage_lovelace.py) — resolvê-lo conclui a fase.
+e caixote, que abrem ao clicar, mais uma engrenagem escondida num dos
+desenhos já ilustrados no papel/planta da parede) para juntar uma
+engrenagem de cada um. Depois de coletar as 4, a planta libera o puzzle
+"ligar a máquina" (babbage_lovelace.py) — resolvê-lo conclui a fase.
 
 `run()` reutiliza a mesma janela/clock do jogo principal. Devolve `True` se
 o jogador concluiu o puzzle, ou `False` se saiu antes apertando ESC.
@@ -42,28 +42,32 @@ GEAR_SPRITE_SIZE = 24
 GEAR_HOVER_SCALE = 1.1
 GEAR_HOVER_RADIUS = 20  # um pouco maior que o sprite: "perto ou sobre" já destaca
 GEAR_IDLE_ALPHA = 165  # ~65% — some um pouco até o mouse chegar perto
+SHADOW_ALPHA = 140  # opacidade da sombra elíptica sob os objetos soltos no chão
 
 # Os 3 objetos com estado fechado/aberto que escondem uma engrenagem cada.
 # "fit" diz como a imagem é escalada: ("h", altura) mantém a altura fixa
 # (objetos "verticais"), ("w", largura) mantém a largura fixa.
 # "shadow" (largura, altura) desenha uma sombra elíptica sob o objeto, para
-# fixá-lo visualmente no chão — bau já parecia apoiado naturalmente na arte
-# de fundo e não precisou.
+# fixá-lo visualmente na superfície onde está — pote fica sobre o tampo da
+# mesa (sombra pequena e sutil), bau e caixote ficam soltos no chão.
 CONTAINERS = [
-    {"key": "bau", "pos": (615, 455), "closed": "bau_fechado", "open": "bau_aberto", "fit": ("h", 55), "rot": 0},
-    {"key": "pote", "pos": (45, 520), "closed": "pote_fechado", "open": "pote_aberto", "fit": ("h", 55), "rot": 0, "shadow": (46, 14)},
-    {"key": "caixote", "pos": (125, 522), "closed": "caixote_fechado", "open": "caixote_aberto", "fit": ("h", 60), "rot": 0, "shadow": (60, 16)},
-]
-
-# Engrenagem solta que já aparece "revelada" no assoalho — sem estado
-# fechado/aberto: clicar nela já soma direto ao contador. "fit" e "rot"
-# funcionam igual aos containers acima.
-FLOOR_GEARS = [
-    {"key": "engrenagem_assoalho", "pos": (880, 540), "sprite": "engrenagem_assoalho", "fit": ("w", 110), "rot": 0},
+    {"key": "bau", "pos": (615, 466), "closed": "bau_fechado", "open": "bau_aberto", "fit": ("h", 55), "rot": 0, "shadow": (56, 16)},
+    {"key": "pote", "pos": (350, 365), "closed": "pote_fechado", "open": "pote_aberto", "fit": ("h", 40), "rot": 0, "shadow": (24, 7)},
+    {"key": "caixote", "pos": (780, 575), "closed": "caixote_fechado", "open": "caixote_aberto", "fit": ("h", 60), "rot": 0, "shadow": (60, 16)},
 ]
 
 # Área do papel/planta na parede, estimada a partir da imagem de fundo.
 PAPER_RECT = pygame.Rect(210, 130, 275, 190)
+
+# 4ª engrenagem escondida: não é um sprite próprio, é uma área clicável sobre
+# um dos desenhos de engrenagem que já existem ilustrados no papel de fundo
+# (a maior, no canto superior direito do desenho). Área independente do
+# PAPER_RECT — clicar aqui coleta a engrenagem; clicar no resto do papel
+# abre o puzzle (só depois de todas as 4 coletadas).
+PAPER_GEAR_KEY = "engrenagem_papel"
+PAPER_GEAR_RECT = pygame.Rect(390, 140, 60, 60)
+PAPER_GEAR_POS = PAPER_GEAR_RECT.center
+PAPER_GEAR_FLASH_SECONDS = 0.6
 
 # Colisão da cena: faixa de chão andável (o resto é parede/janela, onde o
 # personagem não deve conseguir pisar) e a bancada central, bloqueada por
@@ -81,7 +85,6 @@ GEAR_SMALL_HOVER = None
 GEAR_LARGE = None  # reservada para uso futuro — ainda não é desenhada na cena.
 CLOSED_SPRITES = {}
 OPEN_SPRITES = {}
-FLOOR_GEAR_SPRITES = {}
 
 
 def _scale_fit(img, fit, rot=0):
@@ -119,10 +122,6 @@ def _load_assets():
         open_raw = pygame.image.load(os.path.join(ASSETS_DIR, f"{c['open']}.png")).convert_alpha()
         CLOSED_SPRITES[c["key"]] = _scale_fit(closed_raw, c["fit"], c.get("rot", 0))
         OPEN_SPRITES[c["key"]] = _scale_fit(open_raw, c["fit"], c.get("rot", 0))
-
-    for f in FLOOR_GEARS:
-        raw = pygame.image.load(os.path.join(ASSETS_DIR, f"{f['sprite']}.png")).convert_alpha()
-        FLOOR_GEAR_SPRITES[f["key"]] = _scale_fit(raw, f["fit"], f.get("rot", 0))
 
 
 def _draw_player(screen, pos, character_image, character_name, name_font):
@@ -182,14 +181,15 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
 
     container_open = {c["key"]: False for c in CONTAINERS}
     collected = {c["key"]: False for c in CONTAINERS}
-    collected.update({f["key"]: False for f in FLOOR_GEARS})
-    total_gears = len(CONTAINERS) + len(FLOOR_GEARS)
+    collected[PAPER_GEAR_KEY] = False
+    total_gears = len(CONTAINERS) + 1
 
     player_pos = pygame.Vector2(750, 500)  # chão aberto à direita da bancada
     click_target = None
 
     hint_msg = ""
     hint_timer = 0.0
+    paper_gear_flash_timer = 0.0
     completed = False
 
     running = True
@@ -225,16 +225,14 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
                             clicked_something = True
                             break
 
-                if not clicked_something:
-                    for f in FLOOR_GEARS:
-                        key = f["key"]
-                        if collected[key]:
-                            continue
-                        rect = FLOOR_GEAR_SPRITES[key].get_rect(center=f["pos"])
-                        if rect.collidepoint(event.pos):
-                            collected[key] = True
-                            clicked_something = True
-                            break
+                if (
+                    not clicked_something
+                    and not collected[PAPER_GEAR_KEY]
+                    and PAPER_GEAR_RECT.collidepoint(event.pos)
+                ):
+                    collected[PAPER_GEAR_KEY] = True
+                    paper_gear_flash_timer = PAPER_GEAR_FLASH_SECONDS
+                    clicked_something = True
 
                 if not clicked_something and PAPER_RECT.collidepoint(event.pos):
                     clicked_something = True
@@ -293,7 +291,7 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
             if shadow:
                 sw, sh = shadow
                 shadow_surf = pygame.Surface((sw, sh), pygame.SRCALPHA)
-                pygame.draw.ellipse(shadow_surf, (0, 0, 0, 90), shadow_surf.get_rect())
+                pygame.draw.ellipse(shadow_surf, (0, 0, 0, SHADOW_ALPHA), shadow_surf.get_rect())
                 screen.blit(shadow_surf, shadow_surf.get_rect(center=(c["pos"][0], rect.bottom - 4)))
 
             screen.blit(sprite, rect)
@@ -309,22 +307,21 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
                 gear_sprite = GEAR_SMALL_HOVER if hovered else GEAR_SMALL
                 screen.blit(gear_sprite, gear_sprite.get_rect(center=(gx, gy)))
 
-        # --- engrenagens soltas no assoalho (sem estado fechado/aberto) ---
-        for f in FLOOR_GEARS:
-            key = f["key"]
-            if collected[key]:
-                continue
-            sprite = FLOOR_GEAR_SPRITES[key]
-            rect = sprite.get_rect(center=f["pos"])
-
-            hovered = rect.inflate(20, 20).collidepoint(mouse_pos)
-            if hovered:
-                glow_radius = max(rect.width, rect.height) // 2 + 10
+        # --- engrenagem escondida no desenho do papel (canto superior
+        # direito) --- é só uma área clicável sobre a arte de fundo; o
+        # desenho em si nunca muda, só o brilho dourado (hover, e um flash
+        # rápido no momento da coleta).
+        glow_radius = max(PAPER_GEAR_RECT.width, PAPER_GEAR_RECT.height) // 2 + 6
+        if not collected[PAPER_GEAR_KEY]:
+            if PAPER_GEAR_RECT.collidepoint(mouse_pos):
                 glow_surf = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
                 pygame.draw.circle(glow_surf, (*GOLD, 90), (glow_radius, glow_radius), glow_radius)
-                screen.blit(glow_surf, glow_surf.get_rect(center=f["pos"]))
-
-            screen.blit(sprite, rect)
+                screen.blit(glow_surf, glow_surf.get_rect(center=PAPER_GEAR_POS))
+        elif paper_gear_flash_timer > 0:
+            alpha = int(220 * (paper_gear_flash_timer / PAPER_GEAR_FLASH_SECONDS))
+            glow_surf = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
+            pygame.draw.circle(glow_surf, (*GOLD, alpha), (glow_radius, glow_radius), glow_radius)
+            screen.blit(glow_surf, glow_surf.get_rect(center=PAPER_GEAR_POS))
 
         # papel / planta na parede — PAPER_RECT só existe para detecção de
         # clique (collidepoint); nada é desenhado sobre a arte de fundo.
@@ -339,6 +336,9 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
         screen.blit(counter_surf, (width - counter_surf.get_width() - 30, margin + 14))
 
         _draw_player(screen, player_pos, character_image, character_name, name_font)
+
+        if paper_gear_flash_timer > 0:
+            paper_gear_flash_timer -= dt
 
         if hint_timer > 0:
             hint_timer -= dt
