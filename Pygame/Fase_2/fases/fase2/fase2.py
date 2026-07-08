@@ -97,16 +97,16 @@ TABLE_RECT = pygame.Rect(160, 355, 380, 175)
 # sala_maquina_tempo.png e leva o personagem pra lá. Sem bancada nem outros
 # obstáculos, só o chão andável.
 MACHINE_ROOM_FLOOR_RECT = pygame.Rect(20, 480, 960, 150)
-MACHINE_ROOM_ENTRY_POS = (60, 550)  # onde o personagem aparece, como se tivesse entrado por uma porta à esquerda
+MACHINE_ROOM_ENTRY_POS = (60, 605)  # onde os pés do personagem aparecem, como se tivesse entrado por uma porta à esquerda
 TIME_MACHINE_FIT = ("h", 230)
 TIME_MACHINE_POS = (715, 380)  # espaço vazio de parede reservado na nova sala (canto central-direita, antes da prateleira)
-TIME_MACHINE_ARRIVAL_POS = (715, 515)  # onde o personagem para, na caminhada automática
+TIME_MACHINE_ARRIVAL_POS = (715, 585)  # onde os pés do personagem param, na caminhada automática
 FADE_DURATION_SECONDS = 0.35
 
 # Avatar animado do jogador (classe Jogador) — 3 frames por gênero: 1 parado
 # e 2 de caminhada, que alternam enquanto ele anda. "_m" = masculino,
-# "_f" = feminino. Escolhido de acordo com o personagem selecionado no menu
-# (ver run(), não existe uma variável de "gênero" explícita no menu hoje).
+# "_f" = feminino. Escolhido pelo parâmetro `genero` de run(), que o menu
+# repassa de acordo com o personagem selecionado (ver menu/jogo.py).
 AVATAR_ASSETS = {
     "avatar_parado_m": "personagem_parado.png",
     "avatar_andando1_m": "personagem_andando1.png",
@@ -115,7 +115,7 @@ AVATAR_ASSETS = {
     "avatar_andando1_f": "personagem_mulher_andando1.png",
     "avatar_andando2_f": "personagem_mulher_andando2.png",
 }
-AVATAR_FIT = ("h", 150)  # mesma altura já usada para o sprite estático vindo do menu
+AVATAR_FIT = ("h", 220)  # personagem em tamanho proporcional à bancada/objetos da sala
 
 # As imagens só podem passar por .convert()/.convert_alpha() depois que a
 # janela existir (pygame.display.set_mode()). Como menu/jogo.py importa este
@@ -209,8 +209,15 @@ def _draw_player(screen, pos, image, character_name, name_font):
     """Desenha o avatar (frame atual do Jogador, ou o parado no quadro
     congelado do fade) numa posição arbitrária, mais o nome embaixo —
     reaproveitado tanto pelo loop principal quanto pelo quadro "depois" da
-    transição pra sala da máquina."""
-    rect = image.get_rect(center=(int(pos[0]), int(pos[1])))
+    transição pra sala da máquina.
+
+    `pos` é o ponto onde os PÉS do personagem tocam o chão (não o centro do
+    sprite) — mesma referência usada pela colisão (_position_allowed), então
+    o personagem sempre encosta visualmente onde a colisão realmente o para
+    (ex: bem rente à bancada), em vez de sobrar metade do sprite "flutuando"
+    além do ponto bloqueado.
+    """
+    rect = image.get_rect(midbottom=(int(pos[0]), int(pos[1])))
     screen.blit(image, rect)
     name_surf = name_font.render(character_name, True, WHITE)
     screen.blit(name_surf, name_surf.get_rect(midtop=(int(pos[0]), rect.bottom + 4)))
@@ -453,7 +460,7 @@ def _fade_transition(screen, clock, before_surface, after_surface, duration=FADE
             pygame.display.flip()
 
 
-def run(screen, clock, character_image=None, character_name="Jogador"):
+def run(screen, clock, character_image=None, character_name="Jogador", genero="m"):
     """Roda o loop da Fase 2. Devolve True se concluída, False se saiu antes."""
     _load_assets()
     width, height = screen.get_size()
@@ -476,16 +483,14 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
     total_gears = len(CONTAINERS) + 1
 
     # Escolhe o conjunto de frames (masculino/feminino) de acordo com o
-    # personagem escolhido no menu. O menu não tem uma variável de "gênero"
-    # explícita hoje -- só um índice de personagem, e só o índice 0 tem
-    # imagem de verdade (character_image). Por isso: tem imagem -> conjunto
-    # masculino; sem imagem (o segundo slot do menu, ainda sem arte própria)
-    # -> conjunto feminino.
-    sufixo = "_m" if character_image is not None else "_f"
+    # personagem escolhido no menu -- `genero` vem explícito do menu
+    # (Game.do_action, baseado no personagem_index), então não depende de
+    # adivinhar a partir de character_image.
+    sufixo = "_m" if genero == "m" else "_f"
     jogador = Jogador(
         frame_parado=AVATAR_FRAMES[f"parado{sufixo}"],
         frames_andando=[AVATAR_FRAMES[f"andando1{sufixo}"], AVATAR_FRAMES[f"andando2{sufixo}"]],
-        posicao_inicial=(340, 558),  # chão aberto em frente à bancada, entre baú e caixote
+        posicao_inicial=(340, 600),  # pés no chão aberto em frente à bancada, entre baú e caixote
     )
     click_target = None
 
