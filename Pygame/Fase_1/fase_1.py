@@ -37,7 +37,7 @@ PERSONAGEM_ESCOLHIDO = 1
 # Definido os caminhos das pastas/imagens usadas no jogo. A pasta do
 # personagem fica guardada em uma única variável, para facilitar trocar
 # por outro personagem no futuro.
-#
+
 # Em seguida, carrega as duas imagens de cenário (ábaco quebrado e ábaco
 # consertado) e é redimensionado cada uma para caber exatamente no tamanho da
 # janela do jogo. A variável fundo_atual guarda qual das duas imagens está
