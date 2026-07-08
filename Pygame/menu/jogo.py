@@ -12,9 +12,17 @@ from fases.fase2.fase2 import run as run_fase2
 
 pygame.init()
 
+# WIDTH/HEIGHT continuam sendo o tamanho "virtual": todo o desenho e todas as
+# coordenadas já calculadas no menu (retângulos de botões, mapa de fases,
+# fontes, etc.) usam esse espaço, sem mudar nada. A janela real é menor
+# (900x600, padrão decidido pelo grupo) — `screen` é uma Surface comum, não a
+# tela de verdade; ela só é redimensionada e mostrada na janela real a cada
+# frame, no fim de Game.run().
 WIDTH, HEIGHT = 1000, 650
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
+REAL_SIZE = (900, 600)
+pygame.display.set_mode(REAL_SIZE)
 pygame.display.set_caption("Escape.from_past()")
+screen = pygame.Surface((WIDTH, HEIGHT))
 clock = pygame.time.Clock()
 FPS = 60
 
@@ -334,7 +342,12 @@ class Game:
     # ---------- loop principal ----------
     def run(self):
         while self.running:
-            mouse_pos = pygame.mouse.get_pos()
+            real_screen = pygame.display.get_surface()
+            real_w, real_h = real_screen.get_size()
+            raw_mouse = pygame.mouse.get_pos()
+            # converte de volta pras coordenadas da tela virtual (WIDTHxHEIGHT)
+            # antes de checar qualquer colisão de botão/slider.
+            mouse_pos = (raw_mouse[0] * WIDTH / real_w, raw_mouse[1] * HEIGHT / real_h)
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -373,6 +386,11 @@ class Game:
 
             self.draw()
             clock.tick(FPS)
+            # redimensiona a tela virtual (WIDTHxHEIGHT) pro tamanho real da
+            # janela (REAL_SIZE) só na hora de mostrar -- nenhuma coordenada
+            # de desenho precisa mudar.
+            scaled = pygame.transform.smoothscale(screen, (real_w, real_h))
+            real_screen.blit(scaled, (0, 0))
             pygame.display.flip()
 
         pygame.quit()

@@ -6,10 +6,14 @@ mouse e precisa achar os 4 pontos de coleta escondidos pela sala (baú, pote
 e caixote, que abrem ao clicar, mais uma engrenagem escondida num dos
 desenhos já ilustrados no papel/planta da parede) para juntar uma
 engrenagem de cada um. Depois de coletar as 4, a planta libera o puzzle
-"ligar a máquina" (babbage_lovelace.py) — resolvê-lo conclui a fase.
+"ligar a máquina" (babbage_lovelace.py). Resolvê-lo não encerra a fase na
+hora: o personagem anda sozinho (sem controle do jogador) até a máquina do
+tempo parada no canto da sala; ao chegar, o jogador recupera o controle e
+só precisa clicar nela para concluir a fase.
 
 `run()` reutiliza a mesma janela/clock do jogo principal. Devolve `True` se
-o jogador concluiu o puzzle, ou `False` se saiu antes apertando ESC.
+o jogador concluiu a fase (clicou na máquina do tempo), ou `False` se saiu
+antes apertando ESC.
 """
 
 import math
@@ -37,6 +41,7 @@ CLICK_ARRIVE_DIST = 4
 TITLE = "FASE 2"
 SUBTITLE = "AS MÁQUINAS MECÂNICAS  —  1800-1840"
 HINT = "WASD / SETAS andam, CLIQUE move ou interage, ESC volta ao mapa"
+MACHINE_HINT = "Entre na máquina do tempo para ir para a próxima fase!"
 
 GEAR_SPRITE_SIZE = 24
 GEAR_HOVER_SCALE = 1.1
@@ -51,9 +56,9 @@ SHADOW_ALPHA = 140  # opacidade da sombra elíptica sob os objetos soltos no ch�
 # fixá-lo visualmente na superfície onde está — pote fica sobre o tampo da
 # mesa (sombra pequena e sutil), bau e caixote ficam soltos no chão.
 CONTAINERS = [
-    {"key": "bau", "pos": (615, 466), "closed": "bau_fechado", "open": "bau_aberto", "fit": ("h", 55), "rot": 0, "shadow": (56, 16)},
+    {"key": "bau", "pos": (230, 600), "closed": "bau_fechado", "open": "bau_aberto", "fit": ("h", 55), "rot": 0, "shadow": (56, 16)},
     {"key": "pote", "pos": (350, 365), "closed": "pote_fechado", "open": "pote_aberto", "fit": ("h", 40), "rot": 0, "shadow": (24, 7)},
-    {"key": "caixote", "pos": (780, 575), "closed": "caixote_fechado", "open": "caixote_aberto", "fit": ("h", 60), "rot": 0, "shadow": (60, 16)},
+    {"key": "caixote", "pos": (450, 600), "closed": "caixote_fechado", "open": "caixote_aberto", "fit": ("h", 60), "rot": 0, "shadow": (60, 16)},
 ]
 
 # Área do papel/planta na parede, estimada a partir da imagem de fundo.
@@ -75,6 +80,14 @@ PAPER_GEAR_FLASH_SECONDS = 0.6
 FLOOR_RECT = pygame.Rect(20, 400, 960, 230)
 TABLE_RECT = pygame.Rect(160, 355, 380, 175)
 
+# Máquina do tempo — só aparece na cena depois que o puzzle de Babbage é
+# resolvido (não é desenhada antes disso). Fica no espaço vazio de
+# parede/chão à direita; só fica clicável depois que o jogador chega perto
+# dela sozinho (ver arrived_at_machine em run()).
+TIME_MACHINE_FIT = ("h", 410)
+TIME_MACHINE_POS = (770, 387)
+TIME_MACHINE_ARRIVAL_POS = (770, 604)  # onde o personagem para, na caminhada automática
+
 # As imagens só podem passar por .convert()/.convert_alpha() depois que a
 # janela existir (pygame.display.set_mode()). Como menu/jogo.py importa este
 # módulo antes de criar a janela, o carregamento é adiado para _load_assets(),
@@ -85,6 +98,8 @@ GEAR_SMALL_HOVER = None
 GEAR_LARGE = None  # reservada para uso futuro — ainda não é desenhada na cena.
 CLOSED_SPRITES = {}
 OPEN_SPRITES = {}
+TIME_MACHINE_SPRITE = None
+TIME_MACHINE_RECT = None
 
 
 def _scale_fit(img, fit, rot=0):
@@ -100,7 +115,7 @@ def _scale_fit(img, fit, rot=0):
 
 
 def _load_assets():
-    global BACKGROUND, GEAR_SMALL, GEAR_SMALL_HOVER, GEAR_LARGE
+    global BACKGROUND, GEAR_SMALL, GEAR_SMALL_HOVER, GEAR_LARGE, TIME_MACHINE_SPRITE, TIME_MACHINE_RECT
     if BACKGROUND is not None:
         return
 
@@ -122,6 +137,10 @@ def _load_assets():
         open_raw = pygame.image.load(os.path.join(ASSETS_DIR, f"{c['open']}.png")).convert_alpha()
         CLOSED_SPRITES[c["key"]] = _scale_fit(closed_raw, c["fit"], c.get("rot", 0))
         OPEN_SPRITES[c["key"]] = _scale_fit(open_raw, c["fit"], c.get("rot", 0))
+
+    machine_raw = pygame.image.load(os.path.join(ASSETS_DIR, "maquina_do_tempo_v4.png")).convert_alpha()
+    TIME_MACHINE_SPRITE = _scale_fit(machine_raw, TIME_MACHINE_FIT)
+    TIME_MACHINE_RECT = TIME_MACHINE_SPRITE.get_rect(center=TIME_MACHINE_POS)
 
 
 def _draw_player(screen, pos, character_image, character_name, name_font):
@@ -184,18 +203,29 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
     collected[PAPER_GEAR_KEY] = False
     total_gears = len(CONTAINERS) + 1
 
-    player_pos = pygame.Vector2(750, 500)  # chão aberto à direita da bancada
+    player_pos = pygame.Vector2(340, 558)  # chão aberto em frente à bancada, entre baú e caixote
     click_target = None
 
     hint_msg = ""
     hint_timer = 0.0
     paper_gear_flash_timer = 0.0
+    walking_to_machine = False  # caminhada automática após o puzzle, sem controle do jogador
+    arrived_at_machine = False  # liberou o controle; só falta clicar na máquina
     completed = False
 
     running = True
     while running:
         dt = clock.tick(60) / 1000
-        mouse_pos = pygame.mouse.get_pos()
+
+        # a janela real pode ter um tamanho diferente da tela virtual
+        # (width x height, o espaço em que todas as coordenadas da fase já
+        # são calculadas) -- converte mouse/clique de volta pra cá antes de
+        # checar qualquer colisão.
+        real_screen = pygame.display.get_surface()
+        real_w, real_h = real_screen.get_size()
+        scale_x, scale_y = width / real_w, height / real_h
+        raw_mouse = pygame.mouse.get_pos()
+        mouse_pos = (raw_mouse[0] * scale_x, raw_mouse[1] * scale_y)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -204,73 +234,94 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     running = False
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and not walking_to_machine:
+                click_pos = (event.pos[0] * scale_x, event.pos[1] * scale_y)
                 clicked_something = False
 
-                for c in CONTAINERS:
-                    key = c["key"]
-                    is_open = container_open[key]
-                    sprite = OPEN_SPRITES[key] if is_open else CLOSED_SPRITES[key]
-                    rect = sprite.get_rect(center=c["pos"])
+                if arrived_at_machine and TIME_MACHINE_RECT.collidepoint(click_pos):
+                    completed = True
+                    running = False
+                    clicked_something = True
 
-                    if not is_open:
-                        if rect.collidepoint(event.pos):
-                            container_open[key] = True
-                            clicked_something = True
-                            break
-                    elif not collected[key]:
-                        gx, gy = c["pos"]
-                        if math.hypot(event.pos[0] - gx, event.pos[1] - gy) <= GEAR_HOVER_RADIUS:
-                            collected[key] = True
-                            clicked_something = True
-                            break
+                if not clicked_something:
+                    for c in CONTAINERS:
+                        key = c["key"]
+                        is_open = container_open[key]
+                        sprite = OPEN_SPRITES[key] if is_open else CLOSED_SPRITES[key]
+                        rect = sprite.get_rect(center=c["pos"])
+
+                        if not is_open:
+                            if rect.collidepoint(click_pos):
+                                container_open[key] = True
+                                clicked_something = True
+                                break
+                        elif not collected[key]:
+                            gx, gy = c["pos"]
+                            if math.hypot(click_pos[0] - gx, click_pos[1] - gy) <= GEAR_HOVER_RADIUS:
+                                collected[key] = True
+                                clicked_something = True
+                                break
 
                 if (
                     not clicked_something
                     and not collected[PAPER_GEAR_KEY]
-                    and PAPER_GEAR_RECT.collidepoint(event.pos)
+                    and PAPER_GEAR_RECT.collidepoint(click_pos)
                 ):
                     collected[PAPER_GEAR_KEY] = True
                     paper_gear_flash_timer = PAPER_GEAR_FLASH_SECONDS
                     clicked_something = True
 
-                if not clicked_something and PAPER_RECT.collidepoint(event.pos):
+                if not clicked_something and PAPER_RECT.collidepoint(click_pos):
                     clicked_something = True
                     if all(collected.values()):
                         if babbage_lovelace.run(screen, clock):
-                            completed = True
-                            running = False
+                            walking_to_machine = True
+                            click_target = None
                     else:
                         hint_msg = "Ainda faltam engrenagens para juntar."
                         hint_timer = 2.0
 
                 if not clicked_something:
-                    click_target = pygame.Vector2(event.pos)
+                    click_target = pygame.Vector2(click_pos)
 
-        keys = pygame.key.get_pressed()
-        move = pygame.Vector2(0, 0)
-        if keys[pygame.K_w] or keys[pygame.K_UP]:
-            move.y -= 1
-        if keys[pygame.K_s] or keys[pygame.K_DOWN]:
-            move.y += 1
-        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
-            move.x -= 1
-        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
-            move.x += 1
-
-        if move.length_squared() > 0:
-            click_target = None  # teclado cancela o alvo do clique
-            player_pos, _ = _try_move(player_pos, move.normalize() * PLAYER_SPEED * dt)
-        elif click_target is not None:
-            direction = click_target - player_pos
+        if walking_to_machine:
+            # caminhada automática até a máquina do tempo -- ignora
+            # teclado/clique do jogador; usa a mesma _try_move (com
+            # deslize em obstáculos) e velocidade do movimento normal.
+            direction = pygame.Vector2(TIME_MACHINE_ARRIVAL_POS) - player_pos
             dist = direction.length()
             if dist <= CLICK_ARRIVE_DIST:
-                click_target = None
+                player_pos = pygame.Vector2(TIME_MACHINE_ARRIVAL_POS)
+                walking_to_machine = False
+                arrived_at_machine = True
             else:
                 step = min(PLAYER_SPEED * dt, dist)
-                player_pos, moved = _try_move(player_pos, direction.normalize() * step)
-                if not moved:
-                    click_target = None  # caminho bloqueado (ex.: outro lado da bancada)
+                player_pos, _ = _try_move(player_pos, direction.normalize() * step)
+        else:
+            keys = pygame.key.get_pressed()
+            move = pygame.Vector2(0, 0)
+            if keys[pygame.K_w] or keys[pygame.K_UP]:
+                move.y -= 1
+            if keys[pygame.K_s] or keys[pygame.K_DOWN]:
+                move.y += 1
+            if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+                move.x -= 1
+            if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+                move.x += 1
+
+            if move.length_squared() > 0:
+                click_target = None  # teclado cancela o alvo do clique
+                player_pos, _ = _try_move(player_pos, move.normalize() * PLAYER_SPEED * dt)
+            elif click_target is not None:
+                direction = click_target - player_pos
+                dist = direction.length()
+                if dist <= CLICK_ARRIVE_DIST:
+                    click_target = None
+                else:
+                    step = min(PLAYER_SPEED * dt, dist)
+                    player_pos, moved = _try_move(player_pos, direction.normalize() * step)
+                    if not moved:
+                        click_target = None  # caminho bloqueado (ex.: outro lado da bancada)
 
         # --- desenho ---
         screen.blit(BACKGROUND, (0, 0))
@@ -279,6 +330,13 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
         screen.blit(title_surf, title_surf.get_rect(midtop=(width // 2, margin + 8)))
         subtitle_surf = subtitle_font.render(SUBTITLE, True, CREAM)
         screen.blit(subtitle_surf, subtitle_surf.get_rect(midtop=(width // 2, margin + 46)))
+
+        # --- máquina do tempo: só aparece depois que o puzzle de Babbage é
+        # resolvido (walking_to_machine liga nesse momento) — antes disso
+        # nem é desenhada. Sem destaque de hover: o texto MACHINE_HINT já
+        # deixa claro que ela é interativa.
+        if walking_to_machine or arrived_at_machine or completed:
+            screen.blit(TIME_MACHINE_SPRITE, TIME_MACHINE_RECT)
 
         # --- objetos com engrenagem escondida ---
         for c in CONTAINERS:
@@ -345,9 +403,15 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
             hint_surf = counter_font.render(hint_msg, True, RED)
             screen.blit(hint_surf, hint_surf.get_rect(midtop=(width // 2, height - 100)))
 
-        hint_surf2 = hint_font.render(HINT, True, CREAM)
+        bottom_hint = MACHINE_HINT if arrived_at_machine else HINT
+        hint_surf2 = hint_font.render(bottom_hint, True, CREAM)
         screen.blit(hint_surf2, hint_surf2.get_rect(midbottom=(width // 2, height - margin - 6)))
 
+        # redimensiona a tela virtual (width x height) pro tamanho real da
+        # janela só na hora de mostrar -- nenhuma coordenada de desenho
+        # precisa mudar.
+        scaled = pygame.transform.smoothscale(screen, (real_w, real_h))
+        real_screen.blit(scaled, (0, 0))
         pygame.display.flip()
 
     return completed

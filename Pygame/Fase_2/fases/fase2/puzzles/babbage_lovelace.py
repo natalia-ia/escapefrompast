@@ -95,7 +95,15 @@ def run(screen, clock):
     running = True
     while running:
         dt = clock.tick(60) / 1000
-        mouse_pos = pygame.mouse.get_pos()
+
+        # a janela real pode ser menor que a tela virtual (width x height,
+        # o espaço em que todas as coordenadas deste puzzle já são
+        # calculadas) -- converte o mouse de volta pra cá antes de checar
+        # qualquer colisão.
+        real_screen = pygame.display.get_surface()
+        real_w, real_h = real_screen.get_size()
+        raw_mouse = pygame.mouse.get_pos()
+        mouse_pos = (raw_mouse[0] * width / real_w, raw_mouse[1] * height / real_h)
         close_btn.update_hover(mouse_pos)
 
         for event in pygame.event.get():
@@ -189,6 +197,10 @@ def run(screen, clock):
             screen.blit(hint, (30, height - 40))
             close_btn.draw(screen)
 
+        # redimensiona a tela virtual pro tamanho real da janela só na hora
+        # de mostrar -- nenhuma coordenada de desenho precisa mudar.
+        scaled = pygame.transform.smoothscale(screen, (real_w, real_h))
+        real_screen.blit(scaled, (0, 0))
         pygame.display.flip()
 
     return completed
