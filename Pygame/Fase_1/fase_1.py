@@ -53,6 +53,22 @@ relogio = pygame.time.Clock()
 PERSONAGEM_ESCOLHIDO = 1
 
 # ---------------------------------------------------------------------------
+# ASSETS: dicionário centralizado com TODOS os caminhos de imagem/fonte
+# usados no jogo, cada um montado com caminho_asset() a partir da pasta
+# onde este arquivo .py está salvo. Em vez de ter caminhos soltos
+# espalhados pelo código, tudo fica reunido aqui — para adicionar ou trocar
+# um asset, basta mexer neste dicionário.
+# ---------------------------------------------------------------------------
+ASSETS = {
+    "fundo_quebrado": caminho_asset("assets/imagens/cenarios/fase_abaco/cenario_abaco_quebrado.png"),
+    "fundo_consertado": caminho_asset("assets/imagens/cenarios/fase_abaco/cenario_abaco_consertado.png"),
+    "gerbert_retrato": caminho_asset("assets/imagens/cenarios/fase_abaco/gerbert_retrato.png"),
+    "fonte_pixel": caminho_asset("assets/fontes/PressStart2P-Regular.ttf"),
+    "pasta_personagem_1": caminho_asset("assets/imagens/personagem/"),
+    "pasta_personagem_2": caminho_asset("assets/imagens/personagem2/"),
+}
+
+# ---------------------------------------------------------------------------
 # Definido os caminhos das pastas/imagens usadas no jogo. A pasta do
 # personagem fica guardada em uma única variável, para facilitar trocar
 # por outro personagem no futuro.
@@ -63,22 +79,19 @@ PERSONAGEM_ESCOLHIDO = 1
 # sendo exibida no momento — o jogo começa com o cenário quebrado.
 # ---------------------------------------------------------------------------
 PASTAS_PERSONAGEM = [
-    caminho_asset("assets/imagens/personagem/"),
-    caminho_asset("assets/imagens/personagem2/"),
+    ASSETS["pasta_personagem_1"],
+    ASSETS["pasta_personagem_2"],
 ]
 PASTA_PERSONAGEM = PASTAS_PERSONAGEM[PERSONAGEM_ESCOLHIDO]
-
-CAMINHO_FUNDO_QUEBRADO = caminho_asset("assets/imagens/cenarios/fase_abaco/cenario_abaco_quebrado.png")
-CAMINHO_FUNDO_CONSERTADO = caminho_asset("assets/imagens/cenarios/fase_abaco/cenario_abaco_consertado.png")
 
 # ---------------------------------------------------------------------------
 # Fundo da cena (redimensionado para caber exatamente na janela)
 # ---------------------------------------------------------------------------
 fundo_quebrado = pygame.transform.scale(
-    pygame.image.load(CAMINHO_FUNDO_QUEBRADO).convert(), (LARGURA_JANELA, ALTURA_JANELA)
+    pygame.image.load(ASSETS["fundo_quebrado"]).convert(), (LARGURA_JANELA, ALTURA_JANELA)
 )
 fundo_consertado = pygame.transform.scale(
-    pygame.image.load(CAMINHO_FUNDO_CONSERTADO).convert(), (LARGURA_JANELA, ALTURA_JANELA)
+    pygame.image.load(ASSETS["fundo_consertado"]).convert(), (LARGURA_JANELA, ALTURA_JANELA)
 )
 fundo_atual = fundo_quebrado
 
@@ -151,8 +164,7 @@ AREA_PORTA = escalar_retangulo(1150, 230, 165, 295)  # porta do lado direito
 # gerbert_retrato.png não tem nenhum pixel transparente (fundo é opaco),
 # então o recorte em círculo é o que garante o formato redondo.
 # ---------------------------------------------------------------------------
-CAMINHO_RETRATO_GERBERT = caminho_asset("assets/imagens/cenarios/fase_abaco/gerbert_retrato.png")
-imagem_gerbert_original = pygame.image.load(CAMINHO_RETRATO_GERBERT).convert_alpha()
+imagem_gerbert_original = pygame.image.load(ASSETS["gerbert_retrato"]).convert_alpha()
 
 
 def recortar_em_circulo(imagem):
@@ -350,11 +362,10 @@ tempo_mensagem = 0  # quantos quadros a mensagem ainda deve ficar visível
 # os textos mais longos são quebrados em várias linhas (função
 # desenhar_texto_multilinha) para nunca vazar para fora das caixinhas.
 # ---------------------------------------------------------------------------
-CAMINHO_FONTE_PIXEL = caminho_asset("assets/fontes/PressStart2P-Regular.ttf")
 ESPACAMENTO_LINHA = 16  # distância vertical entre linhas de texto quebrado
 
-fonte = pygame.font.Font(CAMINHO_FONTE_PIXEL, 10)
-fonte_grande = pygame.font.Font(CAMINHO_FONTE_PIXEL, 16)
+fonte = pygame.font.Font(ASSETS["fonte_pixel"], 10)
+fonte_grande = pygame.font.Font(ASSETS["fonte_pixel"], 16)
 
 
 def desenhar_texto_multilinha(superficie, texto, fonte_usada, cor, x, y, largura_maxima, espacamento=ESPACAMENTO_LINHA):
