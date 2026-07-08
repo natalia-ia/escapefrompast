@@ -3,12 +3,12 @@ import sys
 import pygame
 
 # menu/ é compartilhado por todas as fases (Pygame/menu/), então não tem como
-# jogo.py adivinhar sozinho onde fica o pacote fases/ de cada uma — isso
+# jogo.py adivinhar sozinho onde fica o pacote fase2/ de cada uma — isso
 # depende de qual fase está te chamando. Quem roda o jogo (o main.py de
 # dentro de Pygame/Fase_2/, por exemplo) já garante que o próprio diretório
 # dele está no sys.path antes de importar este módulo, e é lá que mora o
-# fases/ daquela fase.
-from fases.fase2.fase2 import run as run_fase2
+# fase2/ daquela fase.
+from fase2.fase2 import run as run_fase2
 
 pygame.init()
 

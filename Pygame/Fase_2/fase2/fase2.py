@@ -1,8 +1,8 @@
 """
-Fase 2 — As Máquinas Mecânicas (1800-1840)
+Este arquivo é a cena principal da Fase 2 — As Máquinas Mecânicas (1800-1840).
 
-A cena é a oficina de Babbage. O jogador anda com WASD/setas ou clique do
-mouse e precisa achar os 4 pontos de coleta escondidos pela sala (baú, pote
+A cena é a oficina de Babbage. O jogador anda com WASD/setas e precisa
+achar os 4 pontos de coleta escondidos pela sala (baú, pote
 e caixote, que abrem ao clicar, mais uma engrenagem escondida num dos
 desenhos já ilustrados no papel/planta da parede) para juntar uma
 engrenagem de cada um. Depois de coletar as 4, a planta libera o puzzle
@@ -12,9 +12,20 @@ com a máquina do tempo — ele entra pela lateral esquerda e anda sozinho
 (sem controle do jogador) até perto dela; ao chegar, o jogador recupera o
 controle e só precisa clicar nela para concluir a fase.
 
-`run()` reutiliza a mesma janela/clock do jogo principal. Devolve `True` se
-o jogador concluiu a fase (clicou na máquina do tempo), ou `False` se saiu
-antes apertando ESC.
+`run()` é a função principal deste arquivo e reutiliza a mesma janela/clock
+do jogo principal (quem chama já criou a janela, esta função só "toma
+emprestado" a tela por um tempo). Devolve `True` se o jogador concluiu a
+fase (clicou na máquina do tempo), ou `False` se saiu antes apertando ESC.
+
+Resumo de quem chama quem, de cima pra baixo (pra ajudar a entender por
+onde começar a ler o arquivo):
+    run()                 -- orquestra tudo, é o loop principal da fase
+    ├── _load_assets()    -- carrega as imagens uma única vez
+    ├── _run_intro()      -- tela de introdução, antes de tudo
+    ├── Jogador           -- classe que controla o avatar do jogador
+    ├── babbage_lovelace.run() -- o puzzle (arquivo separado)
+    ├── _fade_transition()-- efeito de escurecer/clarear entre as 2 salas
+    └── _draw_player()    -- desenha o avatar na tela
 """
 
 import math
@@ -24,10 +35,15 @@ import pygame
 
 from .puzzles import babbage_lovelace
 
+# Pasta assets/ desta fase (onde ficam as imagens: cenários, objetos,
+# personagem etc.) -- calculada a partir do caminho deste próprio arquivo,
+# assim funciona não importa de onde o jogo seja executado.
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
-# Paleta de textos da UI (Fase 2) — dourado para títulos, bege para
-# instruções, verde-oliva para status/sucesso.
+# ---------------------------------------------------------------------------
+# Configurações: cores de texto da interface (HUD)
+# ---------------------------------------------------------------------------
+# Dourado para títulos, bege para instruções, verde-oliva para status/sucesso.
 GOLD = (212, 168, 67)
 CREAM = (232, 212, 176)
 OLIVE = (138, 155, 110)
@@ -35,15 +51,33 @@ RED = (255, 70, 70)
 WHITE = (225, 230, 235)
 GREEN = (0, 255, 140)  # usado só em marcadores/efeitos visuais, não em texto
 
-PLAYER_RADIUS = 22  # margem de colisão (não visual) usada pra manter o centro do personagem dentro do chão andável
+# ---------------------------------------------------------------------------
+# Configurações: personagem e colisão
+# ---------------------------------------------------------------------------
+# PLAYER_RADIUS não é um tamanho visual (o sprite pode ser maior/menor) --
+# é só a "margem de segurança" usada nas contas de colisão (_position_allowed
+# mais abaixo), pra decidir o quão perto das bordas do chão ou da bancada o
+# personagem pode chegar.
+PLAYER_RADIUS = 22
+
+# Distância (em pixels) que já conta como "chegou" no alvo de um
+# deslocamento automático (usado por Jogador.mover_para, hoje só na
+# caminhada automática até a máquina do tempo) -- sem essa margem, o
+# personagem poderia nunca "encostar" exatamente no pixel do alvo.
 CLICK_ARRIVE_DIST = 4
 
+# ---------------------------------------------------------------------------
+# Configurações: textos fixos da interface (HUD)
+# ---------------------------------------------------------------------------
 TITLE = "FASE 2"
 SUBTITLE = "AS MÁQUINAS MECÂNICAS  —  1800-1840"
-HINT = "WASD / SETAS andam, CLIQUE move ou interage, ESC volta ao mapa"
+HINT = "WASD / SETAS andam, CLIQUE interage, ESC volta ao mapa"
 MACHINE_HINT = "Entre na máquina do tempo para ir para a próxima fase!"
 
-# Tela de introdução — aparece uma única vez, antes da cena jogável.
+# ---------------------------------------------------------------------------
+# Configurações: tela de introdução (aparece uma única vez, antes da cena
+# jogável -- ver _run_intro() mais abaixo)
+# ---------------------------------------------------------------------------
 INTRO_TEXT = (
     "A Cápsula do Tempo me trouxe a uma velha oficina em Londres. "
     "Encontrei anotações de Charles Babbage sobre uma 'Máquina Analítica', "
@@ -55,13 +89,24 @@ INTRO_PORTRAIT_HEIGHT = 480  # bem maior que o sprite usado durante o jogo
 INTRO_BUBBLE_BG = (232, 220, 196)  # bege claro, mesmo tom da família do CREAM
 INTRO_BUBBLE_BORDER = (60, 45, 30)  # contorno escuro estilo quadrinho
 
+# ---------------------------------------------------------------------------
+# Configurações: engrenagens colecionáveis (visual de hover/destaque)
+# ---------------------------------------------------------------------------
 GEAR_SPRITE_SIZE = 24
 GEAR_HOVER_SCALE = 1.1
 GEAR_HOVER_RADIUS = 20  # um pouco maior que o sprite: "perto ou sobre" já destaca
 GEAR_IDLE_ALPHA = 165  # ~65% — some um pouco até o mouse chegar perto
 SHADOW_ALPHA = 140  # opacidade da sombra elíptica sob os objetos soltos no chão
 
+# ---------------------------------------------------------------------------
+# Configurações: objetos colecionáveis (baú, pote, caixote)
+# ---------------------------------------------------------------------------
 # Os 3 objetos com estado fechado/aberto que escondem uma engrenagem cada.
+# Cada dicionário aqui descreve UM objeto: onde fica, quais imagens usar
+# (fechado/aberto) e como desenhá-lo. Guardar tudo assim, numa lista de
+# dicionários, evita ter que copiar/colar o mesmo bloco de código 3 vezes --
+# o loop lá em run() percorre essa lista e trata os 3 objetos do mesmo jeito.
+#
 # "fit" diz como a imagem é escalada: ("h", altura) mantém a altura fixa
 # (objetos "verticais"), ("w", largura) mantém a largura fixa.
 # "shadow" (largura, altura) desenha uma sombra elíptica sob o objeto, para
@@ -73,7 +118,8 @@ CONTAINERS = [
     {"key": "caixote", "pos": (780, 575), "closed": "caixote_fechado", "open": "caixote_aberto", "fit": ("h", 60), "rot": 0, "shadow": (60, 16)},
 ]
 
-# Área do papel/planta na parede, estimada a partir da imagem de fundo.
+# Área do papel/planta na parede, estimada a partir da imagem de fundo (não
+# tem fórmula -- foi medida olhando pra imagem de background_oficina.png).
 PAPER_RECT = pygame.Rect(210, 130, 275, 190)
 
 # 4ª engrenagem escondida: não é um sprite próprio, é uma área clicável sobre
@@ -86,9 +132,14 @@ PAPER_GEAR_RECT = pygame.Rect(390, 140, 60, 60)
 PAPER_GEAR_POS = PAPER_GEAR_RECT.center
 PAPER_GEAR_FLASH_SECONDS = 0.6
 
+# ---------------------------------------------------------------------------
+# Configurações: colisão e geometria das salas
+# ---------------------------------------------------------------------------
 # Colisão da oficina: faixa de chão andável (o resto é parede/janela, onde
 # o personagem não deve conseguir pisar) e a bancada central, bloqueada por
-# inteiro (tampo + pernas) como um único retângulo.
+# inteiro (tampo + pernas) como um único retângulo. Esses dois retângulos
+# são usados por _position_allowed() mais abaixo pra decidir onde o
+# personagem pode ou não pisar.
 FLOOR_RECT = pygame.Rect(20, 400, 960, 230)
 TABLE_RECT = pygame.Rect(160, 355, 380, 175)
 
@@ -103,10 +154,16 @@ TIME_MACHINE_POS = (715, 380)  # espaço vazio de parede reservado na nova sala 
 TIME_MACHINE_ARRIVAL_POS = (715, 585)  # onde os pés do personagem param, na caminhada automática
 FADE_DURATION_SECONDS = 0.35
 
-# Avatar animado do jogador (classe Jogador) — 3 frames por gênero: 1 parado
-# e 2 de caminhada, que alternam enquanto ele anda. "_m" = masculino,
-# "_f" = feminino. Escolhido pelo parâmetro `genero` de run(), que o menu
-# repassa de acordo com o personagem selecionado (ver menu/jogo.py).
+# ---------------------------------------------------------------------------
+# Configurações: avatar do jogador
+# ---------------------------------------------------------------------------
+# Avatar animado do jogador (classe Jogador, definida mais abaixo) — 3
+# frames por gênero: 1 parado e 2 de caminhada, que alternam enquanto ele
+# anda. "_m" = masculino, "_f" = feminino. Escolhido pelo parâmetro `genero`
+# de run(), que o menu repassa de acordo com o personagem selecionado (ver
+# menu/jogo.py). As chaves deste dicionário (ex: "avatar_parado_m") viram as
+# chaves de AVATAR_FRAMES depois de carregadas (ver _load_assets()), só sem
+# o prefixo "avatar_".
 AVATAR_ASSETS = {
     "avatar_parado_m": "personagem_parado.png",
     "avatar_andando1_m": "personagem_andando1.png",
@@ -117,6 +174,9 @@ AVATAR_ASSETS = {
 }
 AVATAR_FIT = ("h", 220)  # personagem em tamanho proporcional à bancada/objetos da sala
 
+# ---------------------------------------------------------------------------
+# Variáveis globais dos assets (imagens) -- começam vazias/None
+# ---------------------------------------------------------------------------
 # As imagens só podem passar por .convert()/.convert_alpha() depois que a
 # janela existir (pygame.display.set_mode()). Como menu/jogo.py importa este
 # módulo antes de criar a janela, o carregamento é adiado para _load_assets(),
@@ -135,11 +195,25 @@ TIME_MACHINE_RECT = None
 
 
 def _scale_fit(img, fit, rot=0):
+    """Redimensiona `img` mantendo a proporção original (largura/altura),
+    fixando ou a altura ou a largura no valor pedido por `fit`.
+
+    `fit` é uma tupla: ("h", altura_desejada) escala pela ALTURA (bom pra
+    objetos "de pé", como o personagem ou a máquina do tempo); ("w",
+    largura_desejada) escala pela LARGURA. O outro lado da imagem é
+    recalculado proporcionalmente, então a imagem nunca fica "esticada"
+    ou "achatada".
+
+    `rot` (graus) gira a imagem já escalada, se for diferente de 0 --
+    usado por exemplo pra inclinar levemente algum objeto na cena.
+    """
     axis, size = fit
     if axis == "h":
         scale = size / img.get_height()
     else:
         scale = size / img.get_width()
+    # max(1, ...) evita que a imagem vire 0 pixels de largura/altura em
+    # algum caso extremo de arredondamento -- pygame não aceita isso.
     scaled = pygame.transform.smoothscale(img, (max(1, int(img.get_width() * scale)), max(1, int(img.get_height() * scale))))
     if rot:
         scaled = pygame.transform.rotate(scaled, rot)
@@ -148,16 +222,27 @@ def _scale_fit(img, fit, rot=0):
 
 def _wrap_text(text, font, max_width):
     """Quebra `text` em linhas que cabem em `max_width` pixels na `font`
-    dada — pygame não faz isso sozinho, então cada palavra é testada antes
-    de entrar na linha atual."""
+    dada — pygame não faz isso sozinho (renderiza a string inteira numa
+    linha só), então essa função faz na mão o trabalho de decidir onde
+    quebrar.
+
+    A ideia (bem parecida com "preencher uma linha até não caber mais"):
+    vai testando palavra por palavra se ELA CABE na linha atual junto com
+    o que já tem; se couber, junta; se não couber, fecha a linha atual e
+    começa uma nova só com essa palavra.
+    """
     words = text.split(" ")
     lines = []
     current = ""
     for word in words:
         candidate = f"{current} {word}".strip()
         if font.size(candidate)[0] <= max_width:
+            # a palavra ainda cabe na linha atual -- atualiza `current`
+            # pra incluí-la e continua testando a próxima palavra.
             current = candidate
         else:
+            # não coube mais: fecha a linha atual (se já tinha algo nela)
+            # e começa uma nova linha só com a palavra que não coube.
             if current:
                 lines.append(current)
             current = word
@@ -167,10 +252,21 @@ def _wrap_text(text, font, max_width):
 
 
 def _load_assets():
+    """Carrega (e escala) todas as imagens usadas pela Fase 2, mas só na
+    primeira vez que essa função for chamada -- a instrução `if BACKGROUND
+    is not None: return` no início funciona como uma trava: se já carregou
+    antes, sai na hora sem fazer nada de novo.
+
+    Precisa ser chamada só depois que a janela pygame já existir (é por
+    isso que run() chama isso logo no início dela, e não o módulo fazer
+    isso sozinho no import) -- .convert()/.convert_alpha() são otimizações
+    de imagem que exigem uma tela já criada pra funcionar.
+    """
     global BACKGROUND, INTRO_BACKGROUND, MACHINE_ROOM_BACKGROUND, GEAR_SMALL, GEAR_SMALL_HOVER, GEAR_LARGE, TIME_MACHINE_SPRITE, TIME_MACHINE_RECT
     if BACKGROUND is not None:
         return
 
+    # --- cenários de fundo (esticados pro tamanho da tela virtual, 1000x650) ---
     bg_raw = pygame.image.load(os.path.join(ASSETS_DIR, "background_oficina.png")).convert()
     BACKGROUND = pygame.transform.smoothscale(bg_raw, (1000, 650))
 
@@ -180,6 +276,11 @@ def _load_assets():
     machine_room_bg_raw = pygame.image.load(os.path.join(ASSETS_DIR, "sala_maquina_tempo.png")).convert()
     MACHINE_ROOM_BACKGROUND = pygame.transform.smoothscale(machine_room_bg_raw, (1000, 650))
 
+    # --- engrenagem pequena (a que o jogador coleta) ---
+    # Duas versões da MESMA imagem, em tamanhos diferentes: uma "normal"
+    # (semi-transparente, quase escondida no cenário) e uma "hover", maior e
+    # 100% opaca, mostrada quando o mouse está por perto -- dá o efeito de
+    # "destacar" o item colecionável.
     gear_small_raw = pygame.image.load(os.path.join(ASSETS_DIR, "gear_small.png")).convert_alpha()
     GEAR_SMALL = pygame.transform.scale(gear_small_raw, (GEAR_SPRITE_SIZE, GEAR_SPRITE_SIZE))
     GEAR_SMALL.set_alpha(GEAR_IDLE_ALPHA)  # ~65% parada; some no cenário até o mouse chegar perto
@@ -190,16 +291,34 @@ def _load_assets():
     gear_large_raw = pygame.image.load(os.path.join(ASSETS_DIR, "gear_large.png")).convert_alpha()
     GEAR_LARGE = pygame.transform.scale(gear_large_raw, (96, 96))
 
+    # --- objetos colecionáveis (baú, pote, caixote) ---
+    # Percorre a lista CONTAINERS (definida lá em cima) e, pra cada objeto,
+    # carrega as DUAS imagens dele (fechado e aberto) e guarda cada uma já
+    # escalada nos dicionários CLOSED_SPRITES/OPEN_SPRITES, indexados pela
+    # "key" do objeto (ex: "bau") -- assim, na hora de desenhar, é só
+    # procurar CLOSED_SPRITES["bau"] em vez de ter uma variável pra cada.
     for c in CONTAINERS:
         closed_raw = pygame.image.load(os.path.join(ASSETS_DIR, f"{c['closed']}.png")).convert_alpha()
         open_raw = pygame.image.load(os.path.join(ASSETS_DIR, f"{c['open']}.png")).convert_alpha()
         CLOSED_SPRITES[c["key"]] = _scale_fit(closed_raw, c["fit"], c.get("rot", 0))
         OPEN_SPRITES[c["key"]] = _scale_fit(open_raw, c["fit"], c.get("rot", 0))
 
+    # --- máquina do tempo (sala separada) ---
+    # TIME_MACHINE_RECT é calculado automaticamente a partir do tamanho já
+    # escalado do sprite (TIME_MACHINE_SPRITE) + a posição desejada
+    # (TIME_MACHINE_POS): assim, se um dia mudarmos TIME_MACHINE_FIT (o
+    # tamanho), o retângulo de colisão/clique acompanha sozinho, sem
+    # precisar recalcular a mão.
     machine_raw = pygame.image.load(os.path.join(ASSETS_DIR, "maquina_do_tempo_v4.png")).convert_alpha()
     TIME_MACHINE_SPRITE = _scale_fit(machine_raw, TIME_MACHINE_FIT)
     TIME_MACHINE_RECT = TIME_MACHINE_SPRITE.get_rect(center=TIME_MACHINE_POS)
 
+    # --- avatar do jogador (todos os frames, dos dois gêneros) ---
+    # AVATAR_ASSETS tem 6 entradas (3 frames x 2 gêneros); esse loop carrega
+    # as 6 de uma vez só. `key.replace("avatar_", "")` transforma, por
+    # exemplo, "avatar_parado_m" em "parado_m" -- é assim que run() depois
+    # busca o frame certo em AVATAR_FRAMES (ver a escolha de `sufixo` mais
+    # abaixo).
     for key, filename in AVATAR_ASSETS.items():
         raw = pygame.image.load(os.path.join(ASSETS_DIR, filename)).convert_alpha()
         AVATAR_FRAMES[key.replace("avatar_", "")] = _scale_fit(raw, AVATAR_FIT)
@@ -280,8 +399,7 @@ class Jogador:
         self.pos = pygame.Vector2(posicao_inicial)
 
     def mover(self, teclas, floor_rect, table_rect=None):
-        """Lê WASD/setas e anda. Devolve True se andou (pra quem chamar
-        saber se deve cancelar um alvo de clique pendente)."""
+        """Lê WASD/setas e anda. Devolve True se andou nesse frame."""
         dx = dy = 0
         if teclas[pygame.K_LEFT] or teclas[pygame.K_a]:
             dx -= 1
@@ -307,9 +425,9 @@ class Jogador:
 
     def mover_para(self, alvo, floor_rect, table_rect=None):
         """Anda em direção a um ponto fixo -- mesma animação/flip de
-        mover(), só que o alvo é uma posição (clique do jogador, ou a
-        caminhada automática até a máquina do tempo) em vez do teclado.
-        Devolve True quando chega perto o bastante do alvo."""
+        mover(), só que o alvo é uma posição (usado hoje só pela caminhada
+        automática até a máquina do tempo) em vez do teclado. Devolve True
+        quando chega perto o bastante do alvo."""
         direction = pygame.Vector2(alvo) - self.pos
         dist = direction.length()
         chegou = dist <= CLICK_ARRIVE_DIST
@@ -492,7 +610,6 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
         frames_andando=[AVATAR_FRAMES[f"andando1{sufixo}"], AVATAR_FRAMES[f"andando2{sufixo}"]],
         posicao_inicial=(340, 600),  # pés no chão aberto em frente à bancada, entre baú e caixote
     )
-    click_target = None
 
     hint_msg = ""
     hint_timer = 0.0
@@ -579,34 +696,24 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
                                 in_machine_room = True
                                 jogador.pos = pygame.Vector2(MACHINE_ROOM_ENTRY_POS)
                                 walking_to_machine = True
-                                click_target = None
                         else:
                             hint_msg = "Ainda faltam engrenagens para juntar."
                             hint_timer = 2.0
-
-                if not clicked_something:
-                    click_target = pygame.Vector2(click_pos)
 
         floor_rect = MACHINE_ROOM_FLOOR_RECT if in_machine_room else FLOOR_RECT
         table_rect = None if in_machine_room else TABLE_RECT
 
         if walking_to_machine:
-            # caminhada automática até a máquina do tempo -- ignora
-            # teclado/clique do jogador; mesmo mover_para usado pelo clique
-            # normal, só que o alvo é fixo (a máquina) em vez de vir do
-            # jogador.
+            # caminhada automática até a máquina do tempo -- ignora o
+            # teclado do jogador; usa o mesmo mover_para() da caminhada
+            # automática, só que o alvo é fixo (a máquina) em vez de vir de
+            # um clique.
             if jogador.mover_para(TIME_MACHINE_ARRIVAL_POS, floor_rect, table_rect):
                 walking_to_machine = False
                 arrived_at_machine = True
         else:
             keys = pygame.key.get_pressed()
-            andando_teclado = jogador.mover(keys, floor_rect, table_rect)
-
-            if andando_teclado:
-                click_target = None  # teclado cancela o alvo do clique
-            elif click_target is not None:
-                if jogador.mover_para(click_target, floor_rect, table_rect):
-                    click_target = None
+            jogador.mover(keys, floor_rect, table_rect)
 
         # --- desenho ---
         screen.blit(MACHINE_ROOM_BACKGROUND if in_machine_room else BACKGROUND, (0, 0))
