@@ -64,6 +64,7 @@ VERDE       = (60, 170, 90)
 VERMELHO    = (190, 60, 60)
 AMARELO_SEPIA = (196, 164, 96)   # tom "vintage" para combinar com 1936
 AZUL_TURING   = (70, 110, 150)
+BG_COLOR = (8, 10, 22)
 
 
 # =====================================================================
@@ -86,6 +87,10 @@ def caminho_asset(nome_relativo):
 
 
 ASSETS = {
+    # Fundo da tela de MENU/INTRODUÇÃO inicial.
+    # Sugestão de tamanho: 960x600 px (igual à janela do jogo).
+    "fundo_intro": caminho_asset("assets/fundo_intro.png"),
+
     # Avatar do jogador (spritesheet simples ou imagem única).
     # Sugestão de tamanho: 64x96 px, fundo transparente (PNG).
     "avatar_parado": caminho_asset("assets/personagem_parado.png"),
@@ -100,6 +105,8 @@ ASSETS = {
     # penumbra) com espaço vazio de um dos lados para a máquina.
     # Sugestão de tamanho: 960x600 px (igual à janela do jogo).
     "fundo_cena1": caminho_asset("assets/sala_1936.png"),
+    "livro": caminho_asset("assets/livro.png"),
+    "fundo_cena_dica": caminho_asset("assets/cena_dica.png"),
 
     # Sprite da Máquina de Turing que fica "dentro" da Cena 1
     # (parada, aguardando interação). Fundo transparente (PNG).
@@ -118,7 +125,7 @@ ASSETS = {
 
     # (Opcional) Fonte .ttf com estilo de "máquina de escrever" de
     # época. Deixe None para usar a fonte padrão do sistema.
-    "fonte": None,
+    "fonte": caminho_asset("assets/fonte_jogo.ttf")
 }
 
 
@@ -179,7 +186,7 @@ def carregar_fonte(caminho, tamanho):
 
 ALFABETO = string.ascii_uppercase  # "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-PALAVRA_SOLUCAO = "TURING"  # <-- troque aqui para mudar o enigma
+PALAVRA_SOLUCAO = "ATAQUE"  # <-- troque aqui para mudar o enigma
 
 def letra_para_binario(letra):
     """Converte uma letra (A-Z) no código binário de 5 bits
@@ -357,21 +364,25 @@ class Jogo:
     MENU = "menu"
     CENA1 = "cena1"
     CENA2 = "cena2"
+    CENA_DICA = "cena_dica"
     VITORIA = "vitoria"
     DERROTA = "derrota"
 
     def __init__(self):
         pygame.init()
         self.tela = pygame.display.set_mode((LARGURA, ALTURA))
-        pygame.display.set_caption("Escape Room 1936 - A Máquina de Turing")
+        pygame.display.set_caption("Fase 4 - Os fundamentos teóricos")
         self.relogio = pygame.time.Clock()
 
         # --- Fontes ---
-        self.fonte_titulo = carregar_fonte(ASSETS["fonte"], 42)
+        self.fonte_titulo = carregar_fonte(ASSETS["fonte"], 30)
         self.fonte_texto = carregar_fonte(ASSETS["fonte"], 26)
         self.fonte_pequena = carregar_fonte(ASSETS["fonte"], 20)
 
         # --- Carregamento de imagens (com placeholder automático) ---
+        self.img_fundo_intro = carregar_imagem(
+            ASSETS["fundo_intro"], (LARGURA, ALTURA), PRETO, "FUNDO DA INTRO",
+        )
         self.img_fundo_cena1 = carregar_imagem(
             ASSETS["fundo_cena1"], (LARGURA, ALTURA), AMARELO_SEPIA,
             "FUNDO DA CENA 1\n(sala de 1936)",
@@ -403,6 +414,14 @@ class Jogo:
             ASSETS["npc"], (138, 288), (110, 90, 130), "NPC",
         )
 
+        self.img_livro = carregar_imagem(
+            ASSETS["livro"], (50, 60), AMARELO_SEPIA, "LIVRO",
+        )
+        self.img_fundo_cena_dica = carregar_imagem(
+            ASSETS["fundo_cena_dica"], (LARGURA, ALTURA), (70, 55, 40),
+            "FUNDO DA CENA\nDE DICA",
+        )
+
         self.img_vitoria = carregar_imagem(
             ASSETS["tela_vitoria"], (LARGURA, ALTURA), VERDE, "TELA DE VITÓRIA",
         )
@@ -411,7 +430,7 @@ class Jogo:
         )
         # Botão "Iniciar" do menu
         self.botao_iniciar = pygame.Rect(0, 0, 220, 60)
-        self.botao_iniciar.center = (LARGURA // 2, 420)
+        self.botao_iniciar.center = (LARGURA - 270, 500)
 
         # Botões "Reiniciar" das telas de Vitória e Derrota
         self.botao_reiniciar_vitoria = pygame.Rect(0, 0, 260, 60)
@@ -429,7 +448,7 @@ class Jogo:
         self.rect_maquina = self.img_maquina.get_rect(midright=(LARGURA - 60, ALTURA - 260))
         self.zona_interacao = self.rect_maquina.inflate(60, 60)  # área um pouco maior ao redor
 
-        # Posição do NPC na Cena 1 (parado, sem interação por enquanto)   <-- ADICIONE AQUI
+        # Posição do NPC na Cena 1 (parado, sem interação por enquanto)   
         self.rect_npc = self.img_npc.get_rect(midleft=(500, ALTURA - 180))
 
         # Ponto onde o jogador vai parar ao clicar na máquina (um pouco à
@@ -438,6 +457,17 @@ class Jogo:
         self.rect_maquina.left - 40,
         self.rect_maquina.bottom - 20,
         )
+
+        self.rect_livro = self.img_livro.get_rect(midbottom=(375, ALTURA - 208))
+        self.ponto_interacao_livro = (
+            self.rect_livro.centerx,
+            self.rect_livro.bottom + 10,
+        )
+
+        self.proximo_estado_ao_chegar = None
+
+        self.botao_voltar_dica = pygame.Rect(0, 0, 160, 50)
+        self.botao_voltar_dica.bottomleft = (30, ALTURA - 30)
 
         # Caixa de texto da Cena 2 (resposta do enigma)
         self.caixa_resposta = CaixaDeTexto(
@@ -484,14 +514,10 @@ class Jogo:
     # -----------------------------------------------------------------
     
     def desenhar_menu(self):
-        self.tela.fill(PRETO)
-        titulo = self.fonte_titulo.render("A Máquina de Turing - 1936", True, BRANCO)
-        self.tela.blit(titulo, titulo.get_rect(center=(LARGURA // 2, 220)))
+        self.tela.blit(self.img_fundo_intro, (0, 0))
+        titulo = self.fonte_titulo.render("Fase 04 - Máquina de Turing", True, BRANCO)
+        self.tela.blit(titulo, titulo.get_rect(center=(LARGURA - 280, 170)))
 
-        subtitulo = self.fonte_texto.render(
-            "Decifre o código antes que o tempo acabe...", True, CINZA_CLARO,
-        )
-        self.tela.blit(subtitulo, subtitulo.get_rect(center=(LARGURA // 2, 280)))
 
     # --- Botão "Iniciar" (muda de cor quando o mouse passa por cima) ---
         mouse_pos = pygame.mouse.get_pos()
@@ -507,16 +533,15 @@ class Jogo:
         instrucao = self.fonte_pequena.render(
         "Clique em Iniciar ou pressione ENTER", True, CINZA_CLARO,
         )
-        self.tela.blit(instrucao, instrucao.get_rect(center=(LARGURA // 2, 500)))
+        self.tela.blit(instrucao, instrucao.get_rect(center=(LARGURA - 270, 550)))
 
     # -----------------------------------------------------------------
     # TELA: CENA 1 - SALA + PERSONAGEM + MÁQUINA
     # -----------------------------------------------------------------
     def desenhar_cena1(self):
         
-        # Muda o cursor do mouse para indicar que a máquina é clicável
         mouse_pos = pygame.mouse.get_pos()
-        if self.rect_maquina.collidepoint(mouse_pos):
+        if self.rect_maquina.collidepoint(mouse_pos) or self.rect_livro.collidepoint(mouse_pos):
             pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
         else:
             pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
@@ -524,6 +549,7 @@ class Jogo:
         self.tela.blit(self.img_fundo_cena1, (0, 0))
         self.tela.blit(self.img_maquina, self.rect_maquina)
         self.tela.blit(self.img_npc, self.rect_npc)
+        self.tela.blit(self.img_livro, self.rect_livro)
         self.jogador.desenhar(self.tela)
         self.desenhar_cronometro()
         
@@ -532,10 +558,28 @@ class Jogo:
         
     def atualizar_cena1(self, teclas):
         chegou = self.jogador.mover(teclas, self.limites_sala)
-        if chegou:
+        if chegou and self.proximo_estado_ao_chegar is not None:
             self.mensagem_erro = ""
-            self.estado = Jogo.CENA2
+            self.estado = self.proximo_estado_ao_chegar
+            self.proximo_estado_ao_chegar = None
 
+    # -----------------------------------------------------------------
+    # TELA: CENA DA DICA - APENAS IMAGEM + CRONÔMETRO + BOTÃO VOLTAR
+    # -----------------------------------------------------------------
+    def desenhar_cena_dica(self):
+        self.tela.blit(self.img_fundo_cena_dica, (0, 0))
+        self.desenhar_cronometro()
+
+        mouse_pos = pygame.mouse.get_pos()
+        cor_botao = VERDE if self.botao_voltar_dica.collidepoint(mouse_pos) else AMARELO_SEPIA
+
+        pygame.draw.rect(self.tela, cor_botao, self.botao_voltar_dica, border_radius=10)
+        pygame.draw.rect(self.tela, BRANCO, self.botao_voltar_dica, width=2, border_radius=10)
+
+        texto_botao = self.fonte_pequena.render("Voltar", True, PRETO)
+        self.tela.blit(texto_botao, texto_botao.get_rect(center=self.botao_voltar_dica.center))
+
+    
     # -----------------------------------------------------------------
     # TELA: CENA 2 - MÁQUINA DE PERTO + ENIGMA
     # -----------------------------------------------------------------
@@ -623,7 +667,7 @@ class Jogo:
         self.tela.blit(texto_botao, texto_botao.get_rect(center=self.botao_reiniciar_derrota.center))
 
         dica = self.fonte_pequena.render("(ou pressione R)", True, BRANCO)
-        self.tela.blit(dica, dica.get_rect(center=(LARGURA // 2,  ALTURA // 2 + 120)))
+        self.tela.blit(dica, dica.get_rect(center=(LARGURA - 240, self.botao_reiniciar_derrota.bottom + 25)))
 
     
     # -----------------------------------------------------------------
@@ -637,6 +681,7 @@ class Jogo:
         self.mensagem_erro = ""
         self.estado = Jogo.MENU
         self.ticks_inicio = None
+        self.proximo_estado_ao_chegar = None
 
     # -----------------------------------------------------------------
     # LAÇO PRINCIPAL DO JOGO
@@ -668,6 +713,14 @@ class Jogo:
 
                     elif self.estado == Jogo.CENA1 and self.rect_maquina.collidepoint(evento.pos):
                         self.jogador.mover_ate(self.ponto_interacao_maquina)
+                        self.proximo_estado_ao_chegar = Jogo.CENA2
+
+                    elif self.estado == Jogo.CENA1 and self.rect_livro.collidepoint(evento.pos):
+                        self.jogador.mover_ate(self.ponto_interacao_livro)
+                        self.proximo_estado_ao_chegar = Jogo.CENA_DICA
+
+                    elif self.estado == Jogo.CENA_DICA and self.botao_voltar_dica.collidepoint(evento.pos):
+                        self.estado = Jogo.CENA1
 
                     elif self.estado == Jogo.VITORIA and self.botao_reiniciar_vitoria.collidepoint(evento.pos):
                         self.reiniciar()
@@ -675,8 +728,8 @@ class Jogo:
                     elif self.estado == Jogo.DERROTA and self.botao_reiniciar_derrota.collidepoint(evento.pos):
                         self.reiniciar() 
 
-            # --- Verificação do cronômetro (vale para CENA1 e CENA2) ---
-            if self.estado in (Jogo.CENA1, Jogo.CENA2) and self.ticks_inicio is not None:
+            # --- Verificação do cronômetro (vale para CENA1, CENA2 e CENA_DICA) ---
+            if self.estado in (Jogo.CENA1, Jogo.CENA2, Jogo.CENA_DICA) and self.ticks_inicio is not None:
                 if self.tempo_restante_segundos() <= 0:
                     self.estado = Jogo.DERROTA
 
@@ -690,6 +743,8 @@ class Jogo:
                 self.desenhar_menu()
             elif self.estado == Jogo.CENA1:
                 self.desenhar_cena1()
+            elif self.estado == Jogo.CENA_DICA:
+                self.desenhar_cena_dica()        
             elif self.estado == Jogo.CENA2:
                 self.desenhar_cena2()
             elif self.estado == Jogo.VITORIA:
