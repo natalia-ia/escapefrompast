@@ -2,12 +2,15 @@
 Ponto de entrada único do jogo.
 
 Fluxo:
-  1. Roda o menu (menu/jogo.py) — telas de menu, opções e o mapa de fases.
+  1. Roda o menu (Pygame/menu/jogo.py) — telas de menu, opções e o mapa de
+     fases. O menu é compartilhado por todas as fases (fica um nível acima,
+     em Pygame/menu/), então este arquivo garante que Pygame/ esteja no
+     sys.path antes de importá-lo.
   2. O jogador clica em "JOGAR" e é levado ao mapa de fases; ao escolher a
      Fase 2 ali, o próprio menu já chama fases/fase2/fase2.py (run_fase2)
      para tocar a fase. Este arquivo não mexe em menu/jogo.py nem em
      fase2.py — só reúne os dois pontos de entrada num único lugar na raiz
-     do projeto.
+     desta pasta.
 
 Fase 9 (ainda não criada):
   Quando fases/fase9/fase9.py existir, ela deve ser importada aqui do mesmo
@@ -16,6 +19,16 @@ Fase 9 (ainda não criada):
   "start_phase_8" — seguindo exatamente o mesmo padrão já usado para a
   Fase 2 (start_phase_1).
 """
+
+import os
+import sys
+
+# menu/ mora em Pygame/menu/ (compartilhado por todas as fases), um nível
+# acima desta pasta (Pygame/Fase_2/). Garante que Pygame/ esteja no sys.path
+# antes de importar menu.jogo, independente de onde este script for chamado.
+_PYGAME_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PYGAME_ROOT not in sys.path:
+    sys.path.insert(0, _PYGAME_ROOT)
 
 from menu.jogo import Game
 

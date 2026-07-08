@@ -2,13 +2,12 @@ import os
 import sys
 import pygame
 
-# jogo.py mora em menu/, mas fases/ está um nível acima (na raiz do projeto).
-# Garante que a raiz do projeto esteja no sys.path antes de importar fases.*,
-# independente de onde o script for executado.
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, _PROJECT_ROOT)
-
+# menu/ é compartilhado por todas as fases (Pygame/menu/), então não tem como
+# jogo.py adivinhar sozinho onde fica o pacote fases/ de cada uma — isso
+# depende de qual fase está te chamando. Quem roda o jogo (o main.py de
+# dentro de Pygame/Fase_2/, por exemplo) já garante que o próprio diretório
+# dele está no sys.path antes de importar este módulo, e é lá que mora o
+# fases/ daquela fase.
 from fases.fase2.fase2 import run as run_fase2
 
 pygame.init()
