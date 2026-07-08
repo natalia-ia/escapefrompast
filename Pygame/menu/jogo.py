@@ -15,11 +15,11 @@ pygame.init()
 # WIDTH/HEIGHT continuam sendo o tamanho "virtual": todo o desenho e todas as
 # coordenadas já calculadas no menu (retângulos de botões, mapa de fases,
 # fontes, etc.) usam esse espaço, sem mudar nada. A janela real é menor
-# (900x600, padrão decidido pelo grupo) — `screen` é uma Surface comum, não a
+# (960x600, padrão decidido pelo grupo) — `screen` é uma Surface comum, não a
 # tela de verdade; ela só é redimensionada e mostrada na janela real a cada
 # frame, no fim de Game.run().
 WIDTH, HEIGHT = 1000, 650
-REAL_SIZE = (900, 600)
+REAL_SIZE = (960, 600)
 pygame.display.set_mode(REAL_SIZE)
 pygame.display.set_caption("Escape.from_past()")
 screen = pygame.Surface((WIDTH, HEIGHT))
@@ -66,7 +66,7 @@ for _i in range(10):
     PHASE_RECTS.append(_scale_rect(_cx - _PHASE_RECT_W // 2, _y_top, _PHASE_RECT_W, _h))
 
 
-_CHARACTER_IMAGE_FILES = {0: "character_1.png"}
+_CHARACTER_IMAGE_FILES = {0: "personagem_parado.png", 1: "personagem_parada.png"}
 _CHARACTER_BOX_HEIGHT = 165
 CHARACTER_IMAGES = {}
 for _idx, _fname in _CHARACTER_IMAGE_FILES.items():
@@ -283,6 +283,7 @@ class Game:
                         clock,
                         character_image=CHARACTER_IMAGES.get(self.personagem_index),
                         character_name=self.get_personagem_name(self.personagem_index),
+                        genero="m" if self.personagem_index == 0 else "f",
                     )
                     if completed:
                         self.unlocked_phases = max(self.unlocked_phases, 3)

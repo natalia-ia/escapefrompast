@@ -35,8 +35,7 @@ RED = (255, 70, 70)
 WHITE = (225, 230, 235)
 GREEN = (0, 255, 140)  # usado só em marcadores/efeitos visuais, não em texto
 
-PLAYER_SPEED = 240  # pixels por segundo
-PLAYER_RADIUS = 22
+PLAYER_RADIUS = 22  # margem de colisão (não visual) usada pra manter o centro do personagem dentro do chão andável
 CLICK_ARRIVE_DIST = 4
 
 TITLE = "FASE 2"
@@ -98,11 +97,25 @@ TABLE_RECT = pygame.Rect(160, 355, 380, 175)
 # sala_maquina_tempo.png e leva o personagem pra lá. Sem bancada nem outros
 # obstáculos, só o chão andável.
 MACHINE_ROOM_FLOOR_RECT = pygame.Rect(20, 480, 960, 150)
-MACHINE_ROOM_ENTRY_POS = (60, 550)  # onde o personagem aparece, como se tivesse entrado por uma porta à esquerda
-TIME_MACHINE_FIT = ("h", 410)
-TIME_MACHINE_POS = (720, 295)  # espaço vazio de parede reservado na nova sala (canto central-direita)
-TIME_MACHINE_ARRIVAL_POS = (720, 560)  # onde o personagem para, na caminhada automática
+MACHINE_ROOM_ENTRY_POS = (60, 605)  # onde os pés do personagem aparecem, como se tivesse entrado por uma porta à esquerda
+TIME_MACHINE_FIT = ("h", 230)
+TIME_MACHINE_POS = (715, 380)  # espaço vazio de parede reservado na nova sala (canto central-direita, antes da prateleira)
+TIME_MACHINE_ARRIVAL_POS = (715, 585)  # onde os pés do personagem param, na caminhada automática
 FADE_DURATION_SECONDS = 0.35
+
+# Avatar animado do jogador (classe Jogador) — 3 frames por gênero: 1 parado
+# e 2 de caminhada, que alternam enquanto ele anda. "_m" = masculino,
+# "_f" = feminino. Escolhido pelo parâmetro `genero` de run(), que o menu
+# repassa de acordo com o personagem selecionado (ver menu/jogo.py).
+AVATAR_ASSETS = {
+    "avatar_parado_m": "personagem_parado.png",
+    "avatar_andando1_m": "personagem_andando1.png",
+    "avatar_andando2_m": "personagem_andando2.png",
+    "avatar_parado_f": "personagem_parada.png",
+    "avatar_andando1_f": "personagem_mulher_andando1.png",
+    "avatar_andando2_f": "personagem_mulher_andando2.png",
+}
+AVATAR_FIT = ("h", 220)  # personagem em tamanho proporcional à bancada/objetos da sala
 
 # As imagens só podem passar por .convert()/.convert_alpha() depois que a
 # janela existir (pygame.display.set_mode()). Como menu/jogo.py importa este
@@ -116,6 +129,7 @@ GEAR_SMALL_HOVER = None
 GEAR_LARGE = None  # reservada para uso futuro — ainda não é desenhada na cena.
 CLOSED_SPRITES = {}
 OPEN_SPRITES = {}
+AVATAR_FRAMES = {}  # preenchido em _load_assets: "parado_m", "andando1_m", "andando2_m", "parado_f", ...
 TIME_MACHINE_SPRITE = None
 TIME_MACHINE_RECT = None
 
@@ -186,19 +200,27 @@ def _load_assets():
     TIME_MACHINE_SPRITE = _scale_fit(machine_raw, TIME_MACHINE_FIT)
     TIME_MACHINE_RECT = TIME_MACHINE_SPRITE.get_rect(center=TIME_MACHINE_POS)
 
+    for key, filename in AVATAR_ASSETS.items():
+        raw = pygame.image.load(os.path.join(ASSETS_DIR, filename)).convert_alpha()
+        AVATAR_FRAMES[key.replace("avatar_", "")] = _scale_fit(raw, AVATAR_FIT)
 
-def _draw_player(screen, pos, character_image, character_name, name_font):
-    if character_image:
-        rect = character_image.get_rect(center=(int(pos.x), int(pos.y)))
-        screen.blit(character_image, rect)
-        label_y = rect.bottom + 4
-    else:
-        pygame.draw.circle(screen, GREEN, (int(pos.x), int(pos.y)), PLAYER_RADIUS)
-        pygame.draw.circle(screen, (10, 12, 24), (int(pos.x), int(pos.y)), PLAYER_RADIUS - 5)
-        label_y = int(pos.y) + PLAYER_RADIUS + 4
 
+def _draw_player(screen, pos, image, character_name, name_font):
+    """Desenha o avatar (frame atual do Jogador, ou o parado no quadro
+    congelado do fade) numa posição arbitrária, mais o nome embaixo —
+    reaproveitado tanto pelo loop principal quanto pelo quadro "depois" da
+    transição pra sala da máquina.
+
+    `pos` é o ponto onde os PÉS do personagem tocam o chão (não o centro do
+    sprite) — mesma referência usada pela colisão (_position_allowed), então
+    o personagem sempre encosta visualmente onde a colisão realmente o para
+    (ex: bem rente à bancada), em vez de sobrar metade do sprite "flutuando"
+    além do ponto bloqueado.
+    """
+    rect = image.get_rect(midbottom=(int(pos[0]), int(pos[1])))
+    screen.blit(image, rect)
     name_surf = name_font.render(character_name, True, WHITE)
-    screen.blit(name_surf, name_surf.get_rect(midtop=(int(pos.x), label_y)))
+    screen.blit(name_surf, name_surf.get_rect(midtop=(int(pos[0]), rect.bottom + 4)))
 
 
 def _position_allowed(pos, floor_rect, table_rect=None):
@@ -230,6 +252,98 @@ def _try_move(pos, delta, floor_rect, table_rect=None):
     if _position_allowed(only_y, floor_rect, table_rect):
         return only_y, True
     return pos, False
+
+
+class Jogador:
+    """Avatar do jogador com animação simples de 3 frames: 1 parado (idle)
+    e 2 de caminhada, que alternam enquanto ele anda.
+
+    Adaptado da estrutura validada por uma colega em outra fase: mantém os
+    nomes/atributos originais (frame_parado, frames_andando, indice_
+    animacao, tempo_ultimo_frame, imagem, _atualizar_sprite, desenhar), mas
+    a posição é o CENTRO do sprite (`self.pos`, um Vector2) em vez de
+    `self.rect`/topleft, e o deslocamento passa por `_try_move` (que desliza
+    ao redor de obstáculos, como a bancada) em vez do clamp simples do
+    original — a oficina tem uma área bloqueada no meio da sala, não só uma
+    borda externa, então um clamp não seria suficiente aqui.
+    """
+
+    VELOCIDADE = 4  # pixels por frame (a 60fps, igual aos 240px/s já usados antes)
+    INTERVALO_ANIMACAO_MS = 150  # troca de frame a cada 150ms
+
+    def __init__(self, frame_parado, frames_andando, posicao_inicial):
+        self.frame_parado = frame_parado
+        self.frames_andando = frames_andando  # lista: [andando1, andando2]
+        self.indice_animacao = 0
+        self.tempo_ultimo_frame = pygame.time.get_ticks()
+        self.imagem = self.frame_parado
+        self.pos = pygame.Vector2(posicao_inicial)
+
+    def mover(self, teclas, floor_rect, table_rect=None):
+        """Lê WASD/setas e anda. Devolve True se andou (pra quem chamar
+        saber se deve cancelar um alvo de clique pendente)."""
+        dx = dy = 0
+        if teclas[pygame.K_LEFT] or teclas[pygame.K_a]:
+            dx -= 1
+        if teclas[pygame.K_RIGHT] or teclas[pygame.K_d]:
+            dx += 1
+        if teclas[pygame.K_UP] or teclas[pygame.K_w]:
+            dy -= 1
+        if teclas[pygame.K_DOWN] or teclas[pygame.K_s]:
+            dy += 1
+
+        esta_andando = (dx != 0 or dy != 0)
+
+        if esta_andando:
+            delta = pygame.Vector2(dx, dy).normalize() * self.VELOCIDADE
+            self.pos, _ = _try_move(self.pos, delta, floor_rect, table_rect)
+
+        self._atualizar_sprite(esta_andando)
+
+        if dx < 0:
+            self.imagem = pygame.transform.flip(self.imagem, True, False)
+
+        return esta_andando
+
+    def mover_para(self, alvo, floor_rect, table_rect=None):
+        """Anda em direção a um ponto fixo -- mesma animação/flip de
+        mover(), só que o alvo é uma posição (clique do jogador, ou a
+        caminhada automática até a máquina do tempo) em vez do teclado.
+        Devolve True quando chega perto o bastante do alvo."""
+        direction = pygame.Vector2(alvo) - self.pos
+        dist = direction.length()
+        chegou = dist <= CLICK_ARRIVE_DIST
+
+        if not chegou:
+            step = min(self.VELOCIDADE, dist)
+            self.pos, moved = _try_move(self.pos, direction.normalize() * step, floor_rect, table_rect)
+            if not moved:
+                chegou = True  # caminho bloqueado -- desiste do alvo, como antes
+
+        self._atualizar_sprite(not chegou)
+
+        if not chegou and direction.x < 0:
+            self.imagem = pygame.transform.flip(self.imagem, True, False)
+
+        return chegou
+
+    def _atualizar_sprite(self, esta_andando):
+        """Decide qual frame mostrar: parado, ou alternando entre os dois
+        frames de caminhada conforme o tempo passa."""
+        if not esta_andando:
+            self.imagem = self.frame_parado
+            self.indice_animacao = 0
+            return
+
+        agora = pygame.time.get_ticks()
+        if agora - self.tempo_ultimo_frame >= self.INTERVALO_ANIMACAO_MS:
+            self.indice_animacao = (self.indice_animacao + 1) % len(self.frames_andando)
+            self.tempo_ultimo_frame = agora
+        self.imagem = self.frames_andando[self.indice_animacao]
+
+    def desenhar(self, tela):
+        rect = self.imagem.get_rect(center=(int(self.pos.x), int(self.pos.y)))
+        tela.blit(self.imagem, rect)
 
 
 def _run_intro(screen, clock, character_image, width, height, title_font, subtitle_font, hint_font):
@@ -346,7 +460,7 @@ def _fade_transition(screen, clock, before_surface, after_surface, duration=FADE
             pygame.display.flip()
 
 
-def run(screen, clock, character_image=None, character_name="Jogador"):
+def run(screen, clock, character_image=None, character_name="Jogador", genero="m"):
     """Roda o loop da Fase 2. Devolve True se concluída, False se saiu antes."""
     _load_assets()
     width, height = screen.get_size()
@@ -368,7 +482,16 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
     collected[PAPER_GEAR_KEY] = False
     total_gears = len(CONTAINERS) + 1
 
-    player_pos = pygame.Vector2(340, 558)  # chão aberto em frente à bancada, entre baú e caixote
+    # Escolhe o conjunto de frames (masculino/feminino) de acordo com o
+    # personagem escolhido no menu -- `genero` vem explícito do menu
+    # (Game.do_action, baseado no personagem_index), então não depende de
+    # adivinhar a partir de character_image.
+    sufixo = "_m" if genero == "m" else "_f"
+    jogador = Jogador(
+        frame_parado=AVATAR_FRAMES[f"parado{sufixo}"],
+        frames_andando=[AVATAR_FRAMES[f"andando1{sufixo}"], AVATAR_FRAMES[f"andando2{sufixo}"]],
+        posicao_inicial=(340, 600),  # pés no chão aberto em frente à bancada, entre baú e caixote
+    )
     click_target = None
 
     hint_msg = ""
@@ -450,11 +573,11 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
                                 after_surface = pygame.Surface((width, height))
                                 after_surface.blit(MACHINE_ROOM_BACKGROUND, (0, 0))
                                 after_surface.blit(TIME_MACHINE_SPRITE, TIME_MACHINE_RECT)
-                                _draw_player(after_surface, pygame.Vector2(MACHINE_ROOM_ENTRY_POS), character_image, character_name, name_font)
+                                _draw_player(after_surface, MACHINE_ROOM_ENTRY_POS, jogador.frame_parado, character_name, name_font)
                                 _fade_transition(screen, clock, before_surface, after_surface)
 
                                 in_machine_room = True
-                                player_pos = pygame.Vector2(MACHINE_ROOM_ENTRY_POS)
+                                jogador.pos = pygame.Vector2(MACHINE_ROOM_ENTRY_POS)
                                 walking_to_machine = True
                                 click_target = None
                         else:
@@ -469,42 +592,21 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
 
         if walking_to_machine:
             # caminhada automática até a máquina do tempo -- ignora
-            # teclado/clique do jogador; usa a mesma _try_move (com
-            # deslize em obstáculos) e velocidade do movimento normal.
-            direction = pygame.Vector2(TIME_MACHINE_ARRIVAL_POS) - player_pos
-            dist = direction.length()
-            if dist <= CLICK_ARRIVE_DIST:
-                player_pos = pygame.Vector2(TIME_MACHINE_ARRIVAL_POS)
+            # teclado/clique do jogador; mesmo mover_para usado pelo clique
+            # normal, só que o alvo é fixo (a máquina) em vez de vir do
+            # jogador.
+            if jogador.mover_para(TIME_MACHINE_ARRIVAL_POS, floor_rect, table_rect):
                 walking_to_machine = False
                 arrived_at_machine = True
-            else:
-                step = min(PLAYER_SPEED * dt, dist)
-                player_pos, _ = _try_move(player_pos, direction.normalize() * step, floor_rect, table_rect)
         else:
             keys = pygame.key.get_pressed()
-            move = pygame.Vector2(0, 0)
-            if keys[pygame.K_w] or keys[pygame.K_UP]:
-                move.y -= 1
-            if keys[pygame.K_s] or keys[pygame.K_DOWN]:
-                move.y += 1
-            if keys[pygame.K_a] or keys[pygame.K_LEFT]:
-                move.x -= 1
-            if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
-                move.x += 1
+            andando_teclado = jogador.mover(keys, floor_rect, table_rect)
 
-            if move.length_squared() > 0:
+            if andando_teclado:
                 click_target = None  # teclado cancela o alvo do clique
-                player_pos, _ = _try_move(player_pos, move.normalize() * PLAYER_SPEED * dt, floor_rect, table_rect)
             elif click_target is not None:
-                direction = click_target - player_pos
-                dist = direction.length()
-                if dist <= CLICK_ARRIVE_DIST:
+                if jogador.mover_para(click_target, floor_rect, table_rect):
                     click_target = None
-                else:
-                    step = min(PLAYER_SPEED * dt, dist)
-                    player_pos, moved = _try_move(player_pos, direction.normalize() * step, floor_rect, table_rect)
-                    if not moved:
-                        click_target = None  # caminho bloqueado (ex.: outro lado da bancada)
 
         # --- desenho ---
         screen.blit(MACHINE_ROOM_BACKGROUND if in_machine_room else BACKGROUND, (0, 0))
@@ -576,7 +678,7 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
             counter_surf = counter_font.render(counter_text, True, OLIVE if paper_ready else CREAM)
             screen.blit(counter_surf, (width - counter_surf.get_width() - 30, margin + 14))
 
-        _draw_player(screen, player_pos, character_image, character_name, name_font)
+        _draw_player(screen, jogador.pos, jogador.imagem, character_name, name_font)
 
         if paper_gear_flash_timer > 0:
             paper_gear_flash_timer -= dt
@@ -592,7 +694,7 @@ def run(screen, clock, character_image=None, character_name="Jogador"):
             bottom_hint = HINT
         if bottom_hint:
             hint_surf2 = hint_font.render(bottom_hint, True, CREAM)
-            screen.blit(hint_surf2, hint_surf2.get_rect(midbottom=(width // 2, height - margin - 6)))
+            screen.blit(hint_surf2, hint_surf2.get_rect(midbottom=(width // 2, height - 8)))
 
         # redimensiona a tela virtual (width x height) pro tamanho real da
         # janela só na hora de mostrar -- nenhuma coordenada de desenho
