@@ -27,6 +27,13 @@ pygame.display.set_caption("Escape Room - Fase do Ábaco")
 relogio = pygame.time.Clock()
 
 # ---------------------------------------------------------------------------
+# Enquanto o menu de escolha de personagem não fica pronto, essa variável
+# permite trocar manualmente qual personagem é carregado no jogo:
+# 0 = para rodar com o primeiro personagem, 1 = para o segundo personagem.
+# ---------------------------------------------------------------------------
+PERSONAGEM_ESCOLHIDO = 1
+
+# ---------------------------------------------------------------------------
 # Definido os caminhos das pastas/imagens usadas no jogo. A pasta do
 # personagem fica guardada em uma única variável, para facilitar trocar
 # por outro personagem no futuro.
@@ -36,7 +43,11 @@ relogio = pygame.time.Clock()
 # janela do jogo. A variável fundo_atual guarda qual das duas imagens está
 # sendo exibida no momento — o jogo começa com o cenário quebrado.
 # ---------------------------------------------------------------------------
-PASTA_PERSONAGEM = "assets/imagens/personagem/"
+PASTAS_PERSONAGEM = [
+    "assets/imagens/personagem/",
+    "assets/imagens/personagem2/",
+]
+PASTA_PERSONAGEM = PASTAS_PERSONAGEM[PERSONAGEM_ESCOLHIDO]
 
 CAMINHO_FUNDO_QUEBRADO = "assets/imagens/cenarios/fase_abaco/cenario_abaco_quebrado.png"
 CAMINHO_FUNDO_CONSERTADO = "assets/imagens/cenarios/fase_abaco/cenario_abaco_consertado.png"
@@ -86,6 +97,7 @@ imagens_andando = [
 #----------------------------------------------------------------------------
 PE_PERSONAGEM_Y = ALTURA_JANELA - 20
 VELOCIDADE_PERSONAGEM = 4
+personagem_centro_x = LARGURA_JANELA // 2  # começa parado no centro da janela
 
 virado_para_esquerda = False   # usado para espelhar o sprite ao andar p/ esquerda
 quadro_animacao = 0            # qual das duas imagens de andar está ativa
@@ -115,6 +127,14 @@ cenario_consertado = False
 caixa_matematica_aberta = False
 resposta_digitada = ""
 
+# ---------------------------------------------------------------------------
+# Agora é preciso acertar várias contas seguidas para consertar o ábaco, em
+# vez de apenas uma. ACERTOS_NECESSARIOS guarda quantas são necessárias e
+# acertos_atuais conta quantas o jogador já acertou na tentativa atual.
+# ---------------------------------------------------------------------------
+ACERTOS_NECESSARIOS = 3
+acertos_atuais = 0
+
 numero_a = 0
 numero_b = 0
 operador = "+"
@@ -131,8 +151,16 @@ def gerar_nova_conta():
     global numero_a, numero_b, operador, resposta_correta
 
     operador = random.choice(["+", "-", "*"])
-    numero_a = random.randint(1, 12)
-    numero_b = random.randint(1, 12)
+
+    # A multiplicação usa números menores (1 a 6) para o resultado não
+    # passar de 36 e continuar simples de calcular de cabeça; soma e
+    # subtração seguem com números entre 1 e 12, como já era.
+    if operador == "*":
+        numero_a = random.randint(1, 6)
+        numero_b = random.randint(1, 6)
+    else:
+        numero_a = random.randint(1, 12)
+        numero_b = random.randint(1, 12)
 
     if operador == "-" and numero_a < numero_b:
         numero_a, numero_b = numero_b, numero_a  # evita resposta negativa
@@ -169,7 +197,7 @@ while rodando:
         if evento.type == pygame.QUIT:
             rodando = False
 
-         if evento.type == pygame.MOUSEBUTTONDOWN:
+        if evento.type == pygame.MOUSEBUTTONDOWN:
             if not cenario_consertado and not caixa_matematica_aberta:
                 if AREA_ABACO.collidepoint(evento.pos):
                     caixa_matematica_aberta = True
@@ -178,17 +206,31 @@ while rodando:
 
         #---------------------------------------------------------------------
         # É analisado a digitação da conta: Enter confirma e verifica se está
-        # conserta o cenário ou errada sorteia nova conta ; Backspace
-        # apaga; números são adicionados à resposta.
+        # certa ou errada; Backspace apaga; números são adicionados à
+        # resposta.
+        #
+        # Se acertar, soma 1 ao contador de acertos. Enquanto o contador não
+        # chegar em ACERTOS_NECESSARIOS, a caixinha continua aberta e uma
+        # nova conta é sorteada na hora, sem resetar o que já foi acertado.
+        # Só quando completa as 3 contas seguidas é que o cenário é
+        # consertado e a caixinha fecha de vez.
+        # Se errar, o comportamento continua o mesmo de antes: mostra a
+        # mensagem de erro e sorteia outra conta, mas sem mexer no contador
+        # de acertos já feitos.
         if evento.type == pygame.KEYDOWN and caixa_matematica_aberta:
             if evento.key == pygame.K_RETURN:
                 if resposta_digitada != "":
                     if int(resposta_digitada) == resposta_correta:
-                        cenario_consertado = True
-                        fundo_atual = fundo_consertado
-                        caixa_matematica_aberta = False
-                        mensagem_atual = "Parabéns! A conta está certa."
-                        tempo_mensagem = 120
+                        acertos_atuais += 1
+                        resposta_digitada = ""
+                        if acertos_atuais >= ACERTOS_NECESSARIOS:
+                            cenario_consertado = True
+                            fundo_atual = fundo_consertado
+                            caixa_matematica_aberta = False
+                            mensagem_atual = "Parabéns! A conta está certa."
+                            tempo_mensagem = 120
+                        else:
+                            gerar_nova_conta()
                     else:
                         mensagem_atual = "Resposta errada, tente de novo!"
                         tempo_mensagem = 90
@@ -264,8 +306,9 @@ while rodando:
     #----------------------------------------------------------
     # Desenha a caixa da conta matemática: fundo, texto da conta, campo
     # de resposta e instrução.
+    # Deixamos a caixinha mais alta para caber a nova linha que mostra o progresso.
     if caixa_matematica_aberta:
-        caixa_largura, caixa_altura = 400, 150
+        caixa_largura, caixa_altura = 400, 180
         caixa_x = LARGURA_JANELA // 2 - caixa_largura // 2
         caixa_y = ALTURA_JANELA // 2 - caixa_altura // 2
 
@@ -273,14 +316,18 @@ while rodando:
         pygame.draw.rect(tela, (0, 0, 0), (caixa_x, caixa_y, caixa_largura, caixa_altura), 3)
 
         texto_conta = fonte.render(f"Quanto é {numero_a} {operador} {numero_b} ?", True, (0, 0, 0))
-        tela.blit(texto_conta, (caixa_x + 20, caixa_y + 20))
+        tela.blit(texto_conta, (caixa_x + 20, caixa_y + 15))
 
-        pygame.draw.rect(tela, (255, 255, 255), (caixa_x + 20, caixa_y + 70, caixa_largura - 40, 40))
+        # Mostra o progresso do jogador nas contas seguidas (ex: "Acertos: 1 de 3").
+        texto_acertos = fonte.render(f"Acertos: {acertos_atuais} de {ACERTOS_NECESSARIOS}", True, (0, 0, 0))
+        tela.blit(texto_acertos, (caixa_x + 20, caixa_y + 45))
+
+        pygame.draw.rect(tela, (255, 255, 255), (caixa_x + 20, caixa_y + 85, caixa_largura - 40, 40))
         texto_resposta = fonte.render(resposta_digitada, True, (0, 0, 0))
-        tela.blit(texto_resposta, (caixa_x + 25, caixa_y + 78))
+        tela.blit(texto_resposta, (caixa_x + 25, caixa_y + 93))
 
         texto_ajuda = fonte.render("Digite a resposta e pressione Enter", True, (80, 80, 80))
-        tela.blit(texto_ajuda, (caixa_x + 20, caixa_y + 115))
+        tela.blit(texto_ajuda, (caixa_x + 20, caixa_y + 145))
     #--------------------------------------------------------------------
     # É para atualizar a tela e, ao final do jogo, encerra o Pygame corretamente.
     pygame.display.flip()
