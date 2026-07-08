@@ -10,6 +10,7 @@ quebrado, resolve uma conta e libera a porta para a próxima fase.
 # é criado a janela com esse tamanho, é definido o título que aparece na barra
 # da janela, e é criado um "relógio" que controla quantas vezes por segundo
 # o jogo atualiza a tela (60 vezes por segundo, mais à frente no código).
+import os
 import pygame
 import random
 import sys
@@ -18,6 +19,21 @@ import threading
 import ollama
 
 pygame.init()
+
+# ---------------------------------------------------------------------------
+# Monta caminhos de assets a partir da pasta onde este arquivo .py está,
+# em vez de depender da pasta de onde o jogo é executado. Sem isso, rodar
+# o jogo a partir de outra pasta (ex: um diretório acima) faz o Pygame não
+# achar as imagens/fontes, porque os caminhos "assets/..." eram relativos
+# à pasta atual do terminal, não à pasta do projeto.
+# ---------------------------------------------------------------------------
+PASTA_DO_SCRIPT = os.path.dirname(os.path.abspath(__file__))
+
+
+def caminho_asset(nome_relativo):
+    """Monta o caminho absoluto de um asset a partir da pasta 'assets'
+    ao lado deste arquivo .py."""
+    return os.path.join(PASTA_DO_SCRIPT, nome_relativo)
 
 # ---------------------------------------------------------------------------
 # Janela do jogo
@@ -47,13 +63,13 @@ PERSONAGEM_ESCOLHIDO = 1
 # sendo exibida no momento — o jogo começa com o cenário quebrado.
 # ---------------------------------------------------------------------------
 PASTAS_PERSONAGEM = [
-    "assets/imagens/personagem/",
-    "assets/imagens/personagem2/",
+    caminho_asset("assets/imagens/personagem/"),
+    caminho_asset("assets/imagens/personagem2/"),
 ]
 PASTA_PERSONAGEM = PASTAS_PERSONAGEM[PERSONAGEM_ESCOLHIDO]
 
-CAMINHO_FUNDO_QUEBRADO = "assets/imagens/cenarios/fase_abaco/cenario_abaco_quebrado.png"
-CAMINHO_FUNDO_CONSERTADO = "assets/imagens/cenarios/fase_abaco/cenario_abaco_consertado.png"
+CAMINHO_FUNDO_QUEBRADO = caminho_asset("assets/imagens/cenarios/fase_abaco/cenario_abaco_quebrado.png")
+CAMINHO_FUNDO_CONSERTADO = caminho_asset("assets/imagens/cenarios/fase_abaco/cenario_abaco_consertado.png")
 
 # ---------------------------------------------------------------------------
 # Fundo da cena (redimensionado para caber exatamente na janela)
@@ -135,7 +151,7 @@ AREA_PORTA = escalar_retangulo(1150, 230, 165, 295)  # porta do lado direito
 # gerbert_retrato.png não tem nenhum pixel transparente (fundo é opaco),
 # então o recorte em círculo é o que garante o formato redondo.
 # ---------------------------------------------------------------------------
-CAMINHO_RETRATO_GERBERT = "assets/imagens/cenarios/fase_abaco/gerbert_retrato.png"
+CAMINHO_RETRATO_GERBERT = caminho_asset("assets/imagens/cenarios/fase_abaco/gerbert_retrato.png")
 imagem_gerbert_original = pygame.image.load(CAMINHO_RETRATO_GERBERT).convert_alpha()
 
 
@@ -334,7 +350,7 @@ tempo_mensagem = 0  # quantos quadros a mensagem ainda deve ficar visível
 # os textos mais longos são quebrados em várias linhas (função
 # desenhar_texto_multilinha) para nunca vazar para fora das caixinhas.
 # ---------------------------------------------------------------------------
-CAMINHO_FONTE_PIXEL = "assets/fontes/PressStart2P-Regular.ttf"
+CAMINHO_FONTE_PIXEL = caminho_asset("assets/fontes/PressStart2P-Regular.ttf")
 ESPACAMENTO_LINHA = 16  # distância vertical entre linhas de texto quebrado
 
 fonte = pygame.font.Font(CAMINHO_FONTE_PIXEL, 10)
