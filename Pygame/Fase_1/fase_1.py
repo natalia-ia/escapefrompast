@@ -13,6 +13,9 @@ quebrado, resolve uma conta e libera a porta para a próxima fase.
 import pygame
 import random
 import sys
+import threading
+
+import ollama
 
 pygame.init()
 
@@ -37,7 +40,7 @@ PERSONAGEM_ESCOLHIDO = 1
 # Definido os caminhos das pastas/imagens usadas no jogo. A pasta do
 # personagem fica guardada em uma única variável, para facilitar trocar
 # por outro personagem no futuro.
-
+#
 # Em seguida, carrega as duas imagens de cenário (ábaco quebrado e ábaco
 # consertado) e é redimensionado cada uma para caber exatamente no tamanho da
 # janela do jogo. A variável fundo_atual guarda qual das duas imagens está
@@ -120,6 +123,45 @@ AREA_ABACO = escalar_retangulo(315, 280, 210, 170)   # ábaco em cima da mesa
 AREA_PORTA = escalar_retangulo(1150, 230, 165, 295)  # porta do lado direito
 
 # ---------------------------------------------------------------------------
+# Retrato do Gerbert de Aurillac, que fica desenhado no canto superior
+# esquerdo da tela e, ao ser clicado, abre a caixinha de conversa com ele.
+# A imagem é recortada em círculo para ficar com aparência de retrato.
+# ---------------------------------------------------------------------------
+CAMINHO_RETRATO_GERBERT = "assets/imagens/cenarios/fase_abaco/gerbert_retrato.png"
+
+
+def recortar_em_circulo(imagem):
+    """Recorta uma imagem quadrada em um círculo, usado para deixar o
+    retrato do Gerbert redondo."""
+    tamanho = imagem.get_size()
+    mascara_circulo = pygame.Surface(tamanho, pygame.SRCALPHA)
+    pygame.draw.circle(
+        mascara_circulo, (255, 255, 255, 255),
+        (tamanho[0] // 2, tamanho[1] // 2), tamanho[0] // 2,
+    )
+    imagem_recortada = imagem.copy()
+    imagem_recortada.blit(mascara_circulo, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+    return imagem_recortada
+
+
+_retrato_gerbert_original = pygame.image.load(CAMINHO_RETRATO_GERBERT).convert_alpha()
+
+TAMANHO_RETRATO_BOTAO = 70    # retrato pequeno, usado como botão no canto da tela
+TAMANHO_RETRATO_CAIXA = 90    # retrato maior, usado dentro da caixinha de conversa
+
+imagem_retrato_gerbert_botao = recortar_em_circulo(
+    pygame.transform.smoothscale(_retrato_gerbert_original, (TAMANHO_RETRATO_BOTAO, TAMANHO_RETRATO_BOTAO))
+)
+imagem_retrato_gerbert_caixa = recortar_em_circulo(
+    pygame.transform.smoothscale(_retrato_gerbert_original, (TAMANHO_RETRATO_CAIXA, TAMANHO_RETRATO_CAIXA))
+)
+
+MARGEM_RETRATO_GERBERT = 15
+AREA_RETRATO_GERBERT = pygame.Rect(
+    MARGEM_RETRATO_GERBERT, MARGEM_RETRATO_GERBERT, TAMANHO_RETRATO_BOTAO, TAMANHO_RETRATO_BOTAO
+)
+
+# ---------------------------------------------------------------------------
 # Variáveis de estado da atividade da fase: se o cenário foi consertado, se a
 # caixa da conta está aberta, a resposta digitada e os dados da conta.
 # ---------------------------------------------------------------------------
@@ -134,6 +176,65 @@ resposta_digitada = ""
 # ---------------------------------------------------------------------------
 ACERTOS_NECESSARIOS = 3
 acertos_atuais = 0
+
+# ---------------------------------------------------------------------------
+# Estado da caixinha de conversa com o Gerbert de Aurillac: se está aberta,
+# a pergunta que o jogador está digitando, a resposta mais recente da IA e
+# se o jogo está esperando o modelo terminar de responder.
+# ---------------------------------------------------------------------------
+caixa_gerbert_aberta = False
+pergunta_gerbert = ""
+resposta_gerbert = ""
+gerbert_pensando = False
+
+# Instrução de sistema enviada ao modelo para ele sempre responder no papel
+# do Gerbert, com tom leve e simples, adequado para a primeira fase do jogo.
+PROMPT_SISTEMA_GERBERT = (
+    "Você é Gerbert de Aurillac, um monge medieval estudioso de matemática e "
+    "astronomia, e está conversando com o jogador de um jogo educativo de "
+    "escape room, na primeira fase (a fase do ábaco). Responda sempre em "
+    "português, em tom leve, simples e gentil, sem nada difícil ou "
+    "assustador. Seja breve: no máximo 2 a 3 frases."
+)
+
+
+def perguntar_ao_gerbert(pergunta):
+    """Chama o modelo llama3.2 (rodando localmente via Ollama) pedindo uma
+    resposta como se fosse o Gerbert. Roda em uma thread separada para não
+    travar a janela do jogo enquanto espera a resposta chegar."""
+    global resposta_gerbert, gerbert_pensando
+    try:
+        resultado = ollama.chat(
+            model="llama3.2",
+            messages=[
+                {"role": "system", "content": PROMPT_SISTEMA_GERBERT},
+                {"role": "user", "content": pergunta},
+            ],
+        )
+        resposta_gerbert = resultado["message"]["content"].strip()
+    except Exception:
+        resposta_gerbert = "Desculpe, não consegui pensar em uma resposta agora."
+    gerbert_pensando = False
+
+
+def quebrar_texto(texto, fonte, largura_maxima):
+    """Quebra um texto em várias linhas para caber dentro de uma largura
+    máxima, usado para exibir a resposta do Gerbert na caixinha."""
+    palavras = texto.split(" ")
+    linhas = []
+    linha_atual = ""
+    for palavra in palavras:
+        linha_testada = (linha_atual + " " + palavra).strip()
+        if fonte.size(linha_testada)[0] <= largura_maxima:
+            linha_atual = linha_testada
+        else:
+            if linha_atual:
+                linhas.append(linha_atual)
+            linha_atual = palavra
+    if linha_atual:
+        linhas.append(linha_atual)
+    return linhas
+
 
 numero_a = 0
 numero_b = 0
@@ -198,11 +299,20 @@ while rodando:
             rodando = False
 
         if evento.type == pygame.MOUSEBUTTONDOWN:
-            if not cenario_consertado and not caixa_matematica_aberta:
+            if not cenario_consertado and not caixa_matematica_aberta and not caixa_gerbert_aberta:
                 if AREA_ABACO.collidepoint(evento.pos):
                     caixa_matematica_aberta = True
                     resposta_digitada = ""
                     gerar_nova_conta()
+
+            # Clicar no retrato do Gerbert abre a caixinha de conversa, desde
+            # que nenhuma outra caixinha já esteja aberta.
+            if not caixa_matematica_aberta and not caixa_gerbert_aberta:
+                if AREA_RETRATO_GERBERT.collidepoint(evento.pos):
+                    caixa_gerbert_aberta = True
+                    pergunta_gerbert = ""
+                    resposta_gerbert = ""
+                    gerbert_pensando = False
 
         #---------------------------------------------------------------------
         # É analisado a digitação da conta: Enter confirma e verifica se está
@@ -241,10 +351,33 @@ while rodando:
             elif evento.unicode.isdigit():
                 resposta_digitada += evento.unicode
 
+        #---------------------------------------------------------------------
+        # É analisado a digitação da pergunta ao Gerbert: Enter envia a
+        # pergunta para o modelo (numa thread separada, pra não travar a
+        # janela) e mostra "pensando..." até a resposta chegar; Backspace
+        # apaga; Esc fecha a caixinha e volta pro jogo normal. Enquanto o
+        # modelo está pensando, a digitação fica bloqueada.
+        if evento.type == pygame.KEYDOWN and caixa_gerbert_aberta:
+            if evento.key == pygame.K_ESCAPE:
+                caixa_gerbert_aberta = False
+            elif evento.key == pygame.K_RETURN:
+                if pergunta_gerbert != "" and not gerbert_pensando:
+                    gerbert_pensando = True
+                    resposta_gerbert = ""
+                    threading.Thread(
+                        target=perguntar_ao_gerbert, args=(pergunta_gerbert,), daemon=True
+                    ).start()
+            elif evento.key == pygame.K_BACKSPACE:
+                if not gerbert_pensando:
+                    pergunta_gerbert = pergunta_gerbert[:-1]
+            elif not gerbert_pensando and evento.unicode.isprintable() and len(pergunta_gerbert) < 60:
+                pergunta_gerbert += evento.unicode
+
     # -----------------------------------------------------------------------
-    # Movimento do personagem, bloqueado enquanto a caixa da conta está aberta
+    # Movimento do personagem, bloqueado enquanto a caixa da conta ou a
+    # caixinha de conversa com o Gerbert estão abertas
     # -----------------------------------------------------------------------
-    if not caixa_matematica_aberta:
+    if not caixa_matematica_aberta and not caixa_gerbert_aberta:
         teclas = pygame.key.get_pressed()
         if teclas[pygame.K_LEFT]:
             personagem_centro_x -= VELOCIDADE_PERSONAGEM
@@ -295,6 +428,10 @@ while rodando:
     tela.blit(fundo_atual, (0, 0))
     tela.blit(imagem_personagem, (personagem_pos_x, personagem_pos_y))
 
+    # Retrato do Gerbert sempre visível no canto superior esquerdo, servindo
+    # de botão para abrir a caixinha de conversa.
+    tela.blit(imagem_retrato_gerbert_botao, (AREA_RETRATO_GERBERT.x, AREA_RETRATO_GERBERT.y))
+
     if tempo_mensagem > 0:
         texto = fonte_grande.render(mensagem_atual, True, (255, 255, 0))
         tela.blit(texto, (LARGURA_JANELA // 2 - texto.get_width() // 2, 30))
@@ -328,6 +465,48 @@ while rodando:
 
         texto_ajuda = fonte.render("Digite a resposta e pressione Enter", True, (80, 80, 80))
         tela.blit(texto_ajuda, (caixa_x + 20, caixa_y + 145))
+
+    #----------------------------------------------------------
+    # Desenha a caixinha de conversa com o Gerbert: fundo, retrato ao lado,
+    # campo de pergunta e o espaço onde a resposta da IA aparece.
+    if caixa_gerbert_aberta:
+        caixa_g_largura, caixa_g_altura = 560, 260
+        caixa_g_x = LARGURA_JANELA // 2 - caixa_g_largura // 2
+        caixa_g_y = ALTURA_JANELA // 2 - caixa_g_altura // 2
+
+        pygame.draw.rect(tela, (245, 245, 220), (caixa_g_x, caixa_g_y, caixa_g_largura, caixa_g_altura))
+        pygame.draw.rect(tela, (0, 0, 0), (caixa_g_x, caixa_g_y, caixa_g_largura, caixa_g_altura), 3)
+
+        tela.blit(imagem_retrato_gerbert_caixa, (caixa_g_x + 20, caixa_g_y + 20))
+
+        # O texto (título, pergunta e resposta) fica ao lado do retrato.
+        texto_x = caixa_g_x + 20 + TAMANHO_RETRATO_CAIXA + 20
+        texto_largura_disponivel = caixa_g_largura - (texto_x - caixa_g_x) - 20
+
+        texto_titulo = fonte.render("Converse com Gerbert de Aurillac", True, (0, 0, 0))
+        tela.blit(texto_titulo, (texto_x, caixa_g_y + 15))
+
+        pygame.draw.rect(tela, (255, 255, 255), (texto_x, caixa_g_y + 50, texto_largura_disponivel, 35))
+        texto_pergunta = fonte.render(pergunta_gerbert, True, (0, 0, 0))
+        tela.blit(texto_pergunta, (texto_x + 5, caixa_g_y + 57))
+
+        # Enquanto o modelo ainda não respondeu, mostra "pensando..."; depois
+        # que a resposta chega, ela é quebrada em várias linhas para caber
+        # dentro da caixinha.
+        posicao_y_resposta = caixa_g_y + 100
+        if gerbert_pensando:
+            texto_status = fonte.render("Gerbert está pensando...", True, (80, 80, 80))
+            tela.blit(texto_status, (texto_x, posicao_y_resposta))
+        elif resposta_gerbert:
+            for linha in quebrar_texto(resposta_gerbert, fonte, texto_largura_disponivel):
+                texto_linha = fonte.render(linha, True, (0, 0, 0))
+                tela.blit(texto_linha, (texto_x, posicao_y_resposta))
+                posicao_y_resposta += 26
+
+        texto_ajuda_gerbert = fonte.render(
+            "Digite sua pergunta, Enter para enviar, Esc para fechar", True, (80, 80, 80)
+        )
+        tela.blit(texto_ajuda_gerbert, (caixa_g_x + 20, caixa_g_y + caixa_g_altura - 30))
     #--------------------------------------------------------------------
     # É para atualizar a tela e, ao final do jogo, encerra o Pygame corretamente.
     pygame.display.flip()
