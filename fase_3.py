@@ -3,21 +3,19 @@ import sys
 
 pygame.init()
 
-LARGURA, ALTURA = 1280, 720
+LARGURA, ALTURA = 960, 600
 CINZA = (150, 150, 150)
 
 ASSETS = {
     # Cenário
-    "fundo": "assets/cenario/sala.jpeg",
+    "fundo": "assets/cenario/cenario_fase3.png",
 
     # Decoração
     "corpo_personagem": "assets/decoracao/corpo do personagem.png",
-    "estante": "assets/decoracao/estante.png",
     "mesa": "assets/decoracao/mesa.png",
-    "mesa_grande": "assets/decoracao/mesa grande.png",
 
     # Objetos interativos
-    "caixa_cartoes": "assets/interativos/caixa_de_cartoes.png",
+    "caixa_cartoes": "assets/interativos/caixa_cartoes.png",
     "cartoes": "assets/interativos/cartoes.png",
     "chat": "assets/interativos/chat.png",
     "documento_codigo": "assets/interativos/documento_codigo.png",
@@ -78,10 +76,6 @@ class Jogador:
             dx -= self.VELOCIDADE
         if teclas[pygame.K_RIGHT] or teclas[pygame.K_d]:
             dx += self.VELOCIDADE
-        if teclas[pygame.K_UP] or teclas[pygame.K_w]:
-            dy -= self.VELOCIDADE
-        if teclas[pygame.K_DOWN] or teclas[pygame.K_s]:
-            dy += self.VELOCIDADE
 
         esta_andando = dx != 0 or dy != 0
 
@@ -121,16 +115,11 @@ class Jogo:
 
         # ---------------------------------------------------------------
         # DECORAÇÃO (itens fixos, não clicáveis)
-        # A estante fica isolada no canto esquerdo da parede, longe das
-        # duas janelas. Mesa e mesa grande ficam agrupadas mais à direita,
-        # todas alinhadas na mesma "faixa" do chão.
         # Formato de cada item: (imagem, (x, y))
         # ---------------------------------------------------------------
         self.decoracao = [
-        (carregar_imagem(ASSETS["estante"], (210, 450), CINZA, "estante"), (20, 50)),
-        (carregar_imagem(ASSETS["mesa"], (100, 350), CINZA, "mesa"), (40, 120)),
-        (carregar_imagem(ASSETS["mesa_grande"], (360, 200), CINZA, "mesa grande"), (900, 500)),
-]
+            (carregar_imagem(ASSETS["mesa"], (100, 350), CINZA, "mesa"), (40, 120)),
+        ]
 
         # Personagem estático de cenário: não se move, é só decoração.
         # Usa o MESMO tamanho da caixa do personagem jogável (138x288)
@@ -143,25 +132,22 @@ class Jogo:
 
         # ---------------------------------------------------------------
         # OBJETOS INTERATIVOS (clicáveis)
-        # Máquina de tabulação fica "em cima" da mesa pequena, e a caixa
-        # de cartões fica no chão perto da mesa grande -- mesma faixa dos
-        # outros móveis, formando um conjunto único e alinhado.
         # ---------------------------------------------------------------
         self.interativos = [
             {
-                "img": carregar_imagem(ASSETS["maquina_tabulacao"], (110, 110), CINZA, "maquina tabulacao"),
-                "pos": (590, 360),
+                "img": carregar_imagem(ASSETS["maquina_tabulacao"], (300, 300), CINZA, "maquina tabulacao"),
+                "pos": (0, 280),
                 "nome": "maquina tabulacao",
                 "desenhar": True,
             },
             {
-                "img": carregar_imagem(ASSETS["caixa_cartoes"], (70, 70), CINZA, "caixa de cartoes"),
-                "pos": (900, 650),
+                "img": carregar_imagem(ASSETS["caixa_cartoes"], (100, 180), CINZA, "caixa de cartoes"),
+                "pos": (380, 250),
                 "nome": "caixa de cartoes",
                 "desenhar": True,
             },
             {
-                "img": carregar_imagem(ASSETS["icone_inventario"], (60, 60), CINZA, "inventario"),
+                "img": carregar_imagem(ASSETS["icone_inventario"], (100, 100), CINZA, "inventario"),
                 "pos": (LARGURA - 140, ALTURA - 80),
                 "nome": "inventario",
                 "desenhar": True,
@@ -244,4 +230,3 @@ class Jogo:
 if __name__ == "__main__":
     jogo = Jogo(personagem_escolhido=1)
     jogo.rodar()
-
