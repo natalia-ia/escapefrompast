@@ -117,18 +117,18 @@ class Jogo:
         # DECORAÇÃO (itens fixos, não clicáveis)
         # Formato de cada item: (imagem, (x, y))
         # ---------------------------------------------------------------
-        self.decoracao = [
-            (carregar_imagem(ASSETS["mesa"], (100, 350), CINZA, "mesa"), (40, 120)),
-        ]
+        #self.decoracao = [
+        #    (carregar_imagem(ASSETS["mesa"], (100, 100), CINZA, "mesa"), (100, 120)),
+        #]
 
         # Personagem estático de cenário: não se move, é só decoração.
         # Usa o MESMO tamanho da caixa do personagem jogável (138x288)
         # para ficar com a mesma escala na cena. Posicionado ao lado da
         # estante, sem sobrepor.
         self.personagem_cenario = carregar_imagem(
-            ASSETS["corpo_personagem"], (180, 288), CINZA, "personagem cenario"
+            ASSETS["corpo_personagem"], (340, 330), CINZA, "personagem cenario"
         )
-        self.personagem_cenario_pos = (230, 380)
+        self.personagem_cenario_pos = (550, 250)
 
         # ---------------------------------------------------------------
         # OBJETOS INTERATIVOS (clicáveis)
@@ -169,7 +169,7 @@ class Jogo:
         self.jogador = Jogador(
             frame_parado=self.img_avatar_parado,
             frames_andando=[self.img_avatar_andando1, self.img_avatar_andando2],
-            posicao_inicial=(80, ALTURA - 150),
+            posicao_inicial=(80, ALTURA - 200),
         )
 
         try:
@@ -204,8 +204,8 @@ class Jogo:
     def desenhar(self):
         self.tela.blit(self.fundo, (0, 0))
 
-        for img, pos in self.decoracao:
-            self.tela.blit(img, pos)
+        #for img, pos in self.decoracao:
+        #    self.tela.blit(img, pos)
 
         self.tela.blit(self.personagem_cenario, self.personagem_cenario_pos)
 
