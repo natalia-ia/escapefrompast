@@ -1,0 +1,4 @@
+# Segredos/credenciais -- nunca commitar (vale para qualquer fase dentro
+# de Pygame/, ex: Pygame/Fase_2/.env com a chave da API do Gemini).
+.env
+.env.*

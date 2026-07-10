@@ -15,6 +15,12 @@ pygame.transform.rotate().
 Este puzzle é chamado de dentro de fase2.py (função run() lá) quando o
 jogador clica no papel/planta da parede depois de já ter juntado as 4
 engrenagens escondidas pela oficina.
+
+O retrato clicável da Ada Lovelace (ada_chatbot.AdaChat) também aparece
+aqui, pra o jogador poder pedir dicas sem precisar fechar o puzzle -- é o
+MESMO objeto AdaChat usado na oficina, só repassado como parâmetro (ver
+`ada_chat` em run()), então a conversa continua a mesma se o jogador já
+tinha perguntado algo antes de abrir o puzzle.
 """
 
 import os
@@ -85,7 +91,7 @@ def atualizar_engrenagem(angulo_atual):
     return (angulo_atual + GEAR_SPIN_DEGREES_PER_FRAME) % 360
 
 
-def run(screen, clock):
+def run(screen, clock, ada_chat):
     """Roda o loop deste puzzle até o jogador fechar (ESC/botão FECHAR) ou
     resolver. Devolve True se resolveu (fase2.py usa isso pra saber se deve
     seguir com a transição pra sala da máquina do tempo), ou False se saiu
@@ -93,7 +99,10 @@ def run(screen, clock):
 
     `screen` e `clock` são os MESMOS objetos usados pelo loop principal da
     Fase 2 -- não criamos uma janela nova aqui, só "tomamos emprestado" a
-    tela por um tempo e devolvemos o controle no final.
+    tela por um tempo e devolvemos o controle no final. `ada_chat` é o
+    mesmo ada_chatbot.AdaChat já criado em fase2.py -- é só desenhado e
+    tratado aqui também, pra o retrato da Ada continuar clicável durante
+    o puzzle.
     """
     width, height = screen.get_size()
     common.init_fonts()
@@ -160,12 +169,20 @@ def run(screen, clock):
             if event.type == pygame.QUIT:
                 pygame.quit()
                 raise SystemExit
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE and not solved:
-                # só deixa sair com ESC se AINDA não resolveu -- depois de
-                # resolvido, o puzzle fecha sozinho (ver o "if solved"
-                # logo abaixo), então não faz sentido também sair na mão.
-                running = False
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and not solved:
+            elif event.type == pygame.KEYDOWN:
+                if ada_chat.aberta:
+                    # Com a conversa aberta, todo o teclado (inclusive ESC)
+                    # é dela -- ESC fecha só a caixinha, não o puzzle.
+                    ada_chat.tratar_evento_teclado(event)
+                elif event.key == pygame.K_ESCAPE and not solved:
+                    # só deixa sair com ESC se AINDA não resolveu -- depois de
+                    # resolvido, o puzzle fecha sozinho (ver o "if solved"
+                    # logo abaixo), então não faz sentido também sair na mão.
+                    running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and not solved and not ada_chat.aberta:
+                if ada_chat.tratar_clique_no_icone(mouse_pos):
+                    continue
+
                 if close_btn.clicked(mouse_pos, event):
                     running = False
                     continue
@@ -263,6 +280,10 @@ def run(screen, clock):
             hint = common.FONT_SMALL.render(common.ESC_HINT, True, common.CREAM)
             screen.blit(hint, (30, height - 40))
             close_btn.draw(screen)
+
+        # Retrato/chat da Ada -- desenhado por cima de tudo, igual na
+        # oficina, pra o jogador poder pedir dica sem sair do puzzle.
+        ada_chat.desenhar(screen, mouse_pos)
 
         # redimensiona a tela virtual pro tamanho real da janela só na hora
         # de mostrar -- nenhuma coordenada de desenho precisa mudar.

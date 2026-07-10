@@ -1,5 +1,6 @@
 """
-Ponto de entrada único do jogo.
+Este arquivo é o ponto de entrada único do jogo -- é ele que você executa
+(python Fase_2.py) pra abrir o jogo inteiro a partir do menu.
 
 Fluxo:
   1. Roda o menu (Pygame/menu/jogo.py) — telas de menu, opções e o mapa de
@@ -38,5 +39,9 @@ from menu.jogo import Game
 from fase2.fase2 import run as run_fase2  # noqa: F401
 
 
+# Só roda o jogo se este arquivo for executado diretamente (python
+# Fase_2.py), não quando for importado por outro arquivo -- é o padrão
+# usual do Python pra separar "código que só deve rodar quando este
+# arquivo é o programa principal" de "código que pode ser reaproveitado".
 if __name__ == "__main__":
     Game().run()
