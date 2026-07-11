@@ -465,7 +465,7 @@ class Jogo:
         # --- Chatbot do NPC (Professor Turing) integrado à IA local (Ollama) ---
         self.npc_chat = NPCChatbot(
             rect_npc=self.rect_npc,
-            nome_npc="Professor Turing",
+            nome_npc="Prof. Turing",
             contexto_fase=(
                 "Você é o Professor Alan Turing, em 1936, dentro de um jogo de escape "
                 "room educativo. Responda SOMENTE perguntas relacionadas à Fase 4: "

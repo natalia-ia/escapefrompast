@@ -271,9 +271,9 @@ class NPCChatbot:
                               (cursor_x, campo_rect.bottom - 6), 2)
 
         # --- Instruções (ENTER / ESC) ---
-        instrucao = "ENTER para enviar/continuar   |   ESC para sair da conversa"
+        instrucao = "ENTER para enviar/continuar | ESC para sair da conversa"
         if self.carregando:
             instrucao = "Aguardando resposta..."
-        render_instrucao = fonte_pequena.render(instrucao, True, (180, 180, 180))
-        tela.blit(render_instrucao, (caixa_rect.right - render_instrucao.get_width() - 20,
+        render_instrucao = fonte_pequena.render(instrucao, True, (120, 120, 120))
+        tela.blit(render_instrucao, (caixa_rect.right - render_instrucao.get_width() - 15,
                                       caixa_rect.top + 16))

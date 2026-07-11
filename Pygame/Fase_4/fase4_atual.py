@@ -53,7 +53,7 @@ LARGURA, ALTURA = 960, 600
 FPS = 60
 
 # Tempo total da fase, em segundos (5 minutos)
-TEMPO_LIMITE_SEGUNDOS = 5 * 60
+TEMPO_LIMITE_SEGUNDOS = 1 * 60
 FADE_DURATION_SECONDS = 0.35 # transição de tela
 
 # Cores utilitárias (RGB) usadas em textos e placeholders
@@ -507,14 +507,14 @@ class Jogo:
         # --- Chatbot do NPC (Professor Turing) integrado à IA local (Ollama) ---
         self.npc_chat = NPCChatbot(
             rect_npc=self.rect_npc,
-            nome_npc="Professor Turing",
+            nome_npc="Prof. Turing",
             contexto_fase=(
                 "Você é o Alan Turing, em 1936, considerado Pai da computação, dentro de um jogo de chronos "
                 "escape educativo. Responda SOMENTE perguntas relacionadas à Fase 4: "
                 "a Máquina de Turing, o enigma da fita binária (blocos de 5 bits que "
                 "representam letras do alfabeto, A=1 a Z=26), e o contexto histórico "
-                "de 1936. Alan Turing deu um nome à máquina de criptografia que conseguiu decodificar "
-                "mensagens do inimigo : chamada BOMBE.  Se o jogador perguntar algo fora desse tema, responda "
+                "de 1936. Alan Turing deu o nome da sua maquina de criptografia (Maquina de Turing) que conseguiu decodificar mensagens da máquina inimiga (ENIGMA) : chamada BOMBE"
+                "Se o jogador perguntar algo fora desse tema, responda "
                 "educadamente que só pode falar sobre esta fase. "
                 "Responda sempre em português,  em no máximo 3 frases curtas, sem "
                 "nunca revelar diretamente a palavra-solução do enigma e nem a senha."
@@ -832,6 +832,10 @@ class Jogo:
         self.tela.blit(self.img_fundo_cena4, (0, 0))
         self.desenhar_cronometro()
 
+        titulo = self.fonte_texto.render(
+            "Pressione ENTER", True, BRANCO,
+        )
+        self.tela.blit(titulo, titulo.get_rect(center=(LARGURA // 2, 200)))
 
         self.caixa_resposta_cena4.desenhar(self.tela)
 
@@ -947,12 +951,7 @@ class Jogo:
     # -----------------------------------------------------------------
     def desenhar_vitoria(self):
         self.tela.blit(self.img_vitoria, (0, 0))
-        texto = self.fonte_titulo.render("Você concluiu, parabéns!", True, BRANCO)
-        sombra = self.fonte_titulo.render("Você concluiu, parabéns!", True, PRETO)
-        centro = (LARGURA // 2, ALTURA // 2)
-        self.tela.blit(sombra, sombra.get_rect(center=(centro[0] + 2, centro[1] + 2)))
-        self.tela.blit(texto, texto.get_rect(center=centro))
-        self.desenhar_botao_inventario()
+
 
 
     def desenhar_derrota(self):
@@ -974,7 +973,7 @@ class Jogo:
         self.tela.blit(texto_botao, texto_botao.get_rect(center=self.botao_reiniciar_derrota.center))
 
         dica = self.fonte_pequena.render("(ou pressione R)", True, BRANCO)
-        self.tela.blit(dica, dica.get_rect(center=(LARGURA - 240, self.botao_reiniciar_derrota.bottom + 25)))
+        self.tela.blit(dica, dica.get_rect(center=(LARGURA - 260, self.botao_reiniciar_derrota.bottom + 25)))
 
     
     # -----------------------------------------------------------------
