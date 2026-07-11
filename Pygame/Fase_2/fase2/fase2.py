@@ -164,6 +164,12 @@ TIME_MACHINE_POS = (715, 380)  # espaço vazio de parede reservado na nova sala 
 TIME_MACHINE_ARRIVAL_POS = (715, 585)  # onde os pés do personagem param na caminhada automática e o jogador toma controle
 FADE_DURATION_SECONDS = 0.35
 
+# Quanto tempo o banner "Você concluiu, parabéns!" fica na tela, sobreposto
+# à sala da máquina do tempo, logo que ela aparece (antes da caminhada
+# automática até a máquina começar) -- ver _mostrar_mensagem_vitoria() mais
+# abaixo.
+MENSAGEM_VITORIA_SEGUNDOS = 2.0
+
 # ---------------------------------------------------------------------------
 # Configurações do avatar do jogador
 # ---------------------------------------------------------------------------
@@ -713,6 +719,42 @@ def _fade_transition(screen, clock, before_surface, after_surface, duration=FADE
             pygame.display.flip()
 
 
+def _mostrar_mensagem_vitoria(screen, clock, cena_base, mensagem, duracao):
+    """Mostra `mensagem` num banner centralizado, sobreposto a `cena_base`
+    (uma Surface já pronta, com o fundo/máquina/personagem já desenhados),
+    por `duracao` segundos -- usado logo que a sala da máquina do tempo
+    aparece, pra comemorar a conclusão do puzzle antes da caminhada
+    automática até a máquina começar. `cena_base` é redesenhada em todo
+    frame por baixo do banner, então o fundo novo já aparece cheio desde o
+    primeiro frame -- só o banner some depois de `duracao`. Mesmo espírito
+    de _fade_transition: não é uma tela interativa, só processa QUIT pra
+    não travar a janela achando que o app travou.
+    """
+    banner_largura, banner_altura = 560, 100
+    banner_rect = pygame.Rect(0, 0, banner_largura, banner_altura)
+    banner_rect.center = (screen.get_width() // 2, screen.get_height() // 2)
+    banner_font = pygame.font.SysFont("consolas", 28, bold=True)
+
+    steps = max(1, int(duracao * 60))
+    for _ in range(steps):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                raise SystemExit
+        clock.tick(60)
+
+        screen.blit(cena_base, (0, 0))
+        pygame.draw.rect(screen, (43, 30, 20), banner_rect, border_radius=12)
+        pygame.draw.rect(screen, GOLD, banner_rect, width=3, border_radius=12)
+        texto_surf = banner_font.render(mensagem, True, GOLD)
+        screen.blit(texto_surf, texto_surf.get_rect(center=banner_rect.center))
+
+        real_screen = pygame.display.get_surface()
+        scaled = pygame.transform.smoothscale(screen, real_screen.get_size())
+        real_screen.blit(scaled, (0, 0))
+        pygame.display.flip()
+
+
 def run(screen, clock, character_image=None, character_name="Jogador", genero="m"):
 
     '''Roda o loop da Fase 2 inteira, do início ao fim. Devolve True se o
@@ -773,6 +815,14 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
 
     ada_chat = ada_chatbot.AdaChat()
 
+    # Estado do puzzle (cartões colocados, tempo restante, estrelas) --
+    # criado uma única vez aqui, igual ao ada_chat acima, e repassado por
+    # parâmetro pra babbage_lovelace.run(). É isso que permite fechar a
+    # tela do puzzle sem resolver e reabrir continuando a mesma tentativa
+    # (cartões e cronômetro de onde pararam), em vez de reiniciar do zero
+    # a cada clique no papel.
+    estado_puzzle = babbage_lovelace.EstadoPuzzle()
+
     # --- variáveis de estado do restante da fase (mudam durante o jogo) ---
     hint_msg = ""  # texto de um aviso temporário (ex: "faltam engrenagens")
     hint_timer = 0.0  # quanto tempo (em segundos) ainda falta esse aviso ficar na tela
@@ -822,6 +872,11 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
                     ada_chat.tratar_evento_teclado(event)
                 elif event.key == pygame.K_ESCAPE:
                     running = False
+            elif event.type == pygame.MOUSEWHEEL and ada_chat.aberta:
+                # Rola o texto da resposta da Ada -- só faz sentido com a
+                # caixinha aberta (é a única coisa que a roda do mouse
+                # controla na cena).
+                ada_chat.tratar_evento_scroll(event)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and not walking_to_machine and not ada_chat.aberta:
                 # not walking_to_machine: durante a caminhada automática
                 # até a máquina, o jogador não deve conseguir interagir com
@@ -897,7 +952,7 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
                     if not clicked_something and PAPER_RECT.collidepoint(click_pos):
                         clicked_something = True
                         if all(collected.values()):
-                            if babbage_lovelace.run(screen, clock, ada_chat):
+                            if babbage_lovelace.run(screen, clock, ada_chat, estado_puzzle):
                                 # O puzzle foi resolvido. Agora faz a
                                 # transição pra sala separada da máquina do
                                 # tempo, fade a partir do último quadro
@@ -912,6 +967,18 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
                                 after_surface.blit(TIME_MACHINE_SPRITE, TIME_MACHINE_RECT)
                                 _draw_player(after_surface, MACHINE_ROOM_ENTRY_POS, jogador.frame_parado, character_name, name_font)
                                 _fade_transition(screen, clock, before_surface, after_surface)
+
+                                # Assim que a sala da máquina do tempo
+                                # aparece (fade já terminou), comemora a
+                                # conclusão do puzzle com um banner
+                                # sobreposto à cena nova, antes da
+                                # caminhada automática até a máquina
+                                # começar -- não mostra mais essa mensagem
+                                # na tela do próprio puzzle.
+                                _mostrar_mensagem_vitoria(
+                                    screen, clock, after_surface,
+                                    "Você concluiu, parabéns!", MENSAGEM_VITORIA_SEGUNDOS,
+                                )
 
                                 # Depois do fade, o jogo "está" na sala da
                                 # máquina: teleporta o personagem pra
