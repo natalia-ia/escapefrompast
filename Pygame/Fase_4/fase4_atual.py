@@ -515,6 +515,18 @@ class Jogo:
         self.botao_iniciar = pygame.Rect(0, 0, 220, 60)
         self.botao_iniciar.center = (LARGURA - 270, 500)
 
+        # Retângulos clicáveis de cada miniatura de personagem,
+        # exibidos lado a lado no menu. Ajuste a posição/tamanho como
+        # quiser - aqui ficaram no canto inferior esquerdo do menu.
+        self.rects_personagens = []
+        largura_miniatura, altura_miniatura = 90, 140
+        espaco_entre = 20
+        x_inicial = 60
+        for indice in range(len(self.opcoes_personagens)):
+            rect = pygame.Rect(0, 0, largura_miniatura, altura_miniatura)
+            rect.topleft = (x_inicial + indice * (largura_miniatura + espaco_entre), 380)
+            self.rects_personagens.append(rect)
+
         # Botões "Reiniciar" das telas de Vitória e Derrota
         self.botao_reiniciar_vitoria = pygame.Rect(0, 0, 260, 60)
         self.botao_reiniciar_vitoria.center = (LARGURA // 2, ALTURA // 2 + 120)
