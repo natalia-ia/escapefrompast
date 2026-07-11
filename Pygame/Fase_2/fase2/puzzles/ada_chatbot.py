@@ -3,25 +3,22 @@ Este arquivo implementa o chatbot da Ada Lovelace na Fase 2: um único
 retrato clicável, sobreposto ao canto superior esquerdo do papel/planta na
 parede da oficina, que abre uma caixinha de conversa compacta (estilo RPG,
 igual à do Gerbert na Fase 1) onde o jogador pode digitar perguntas e
-receber respostas geradas pela API do Gemini, no papel da própria Ada. Ela
-conhece a lógica do puzzle de Babbage/Lovelace e pode dar dicas sobre a
-ordem dos cartões, mas evita simplesmente entregar a resposta pronta -- a
-ideia é ajudar sem estragar a graça do puzzle.
+receber respostas geradas pelo modelo qwen2.5:0.5b, rodando localmente via
+Ollama, no papel da própria Ada. Ela conhece a lógica do puzzle de
+Babbage/Lovelace e pode dar dicas sobre a ordem dos cartões, mas evita
+simplesmente entregar a resposta pronta -- a ideia é ajudar sem estragar a
+graça do puzzle.
 
 O mesmo retrato/conversa aparece em DOIS lugares: na cena principal da
 oficina (fase2.py) e na tela do próprio puzzle (babbage_lovelace.py) -- é
 o mesmo objeto AdaChat repassado de um pra outro, então a conversa (e a
 posição do ícone) continua igual nos dois.
 
-Mesma estratégia de thread do Gerbert (Fase 1): a chamada à API roda numa
-thread separada, com timeout, para a janela do jogo nunca travar esperando
-uma resposta (mesmo se a internet cair ou a API demorar).
-
-A chave da API (GEMINI_API_KEY) nunca fica escrita neste arquivo -- ela é
-lida de um arquivo .env (Pygame/Fase_2/.env, fora do controle de versão)
-através da biblioteca python-dotenv. Se a chave não estiver configurada
-ainda, o chat simplesmente mostra uma mensagem de erro amigável, em vez de
-travar o jogo inteiro.
+Mesma estratégia do Gerbert (Fase 1): a chamada ao Ollama roda numa thread
+separada, com timeout, para a janela do jogo nunca travar esperando uma
+resposta (mesmo se o Ollama não estiver rodando ou demorar demais). Não
+precisa de chave de API nem de conexão com a internet -- o modelo roda no
+próprio computador.
 
 Este módulo é independente do resto da Fase 2 (só usa `common` para
 cores/fontes compartilhadas) -- quem o conecta ao jogo é fase2.py e
@@ -34,40 +31,26 @@ caixinha do Gerbert na Fase 1).
 import os
 import threading
 
+import ollama
 import pygame
-from dotenv import load_dotenv
 
 from . import common
 
 # ---------------------------------------------------------------------------
-# Configuração da API do Gemini
+# Configuração do Ollama
 # ---------------------------------------------------------------------------
-# O .env fica na raiz da Fase 2 (Pygame/Fase_2/.env), três pastas acima
-# deste arquivo (puzzles/ -> fase2/ -> Fase_2/) -- calculamos o caminho a
-# partir deste próprio arquivo, em vez de depender de qual pasta o jogo foi
-# executado, para o .env ser encontrado não importa de onde o jogo rode.
-_FASE_2_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_ENV_PATH = os.path.join(_FASE_2_DIR, ".env")
-load_dotenv(_ENV_PATH)
+# qwen2.5:0.5b é o mesmo modelo já usado pelo Gerbert (Fase 1) -- pequeno o
+# bastante pra rodar bem em computadores com pouca memória disponível, e
+# reaproveitar o mesmo modelo evita ter que baixar um segundo.
+MODELO_ADA = "qwen2.5:0.5b"
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-# "gemini-flash-latest" é um "apelido" que a Google sempre aponta pro
-# modelo flash mais atual -- evita ter que trocar esse nome toda vez que
-# uma versão específica (ex: "gemini-2.5-flash") for descontinuada, o que
-# já aconteceu uma vez durante o desenvolvimento (erro 404 "no longer
-# available to new users").
-MODELO_ADA = "gemini-flash-latest"
-
-# Quanto tempo (em segundos) esperamos a resposta antes de desistir e
-# mostrar erro. IMPORTANTE: isso é aplicado por NÓS (com threading.Event),
-# não só repassado pra biblioteca -- na prática, o timeout que a própria
-# biblioteca aceita (http_options.timeout) nem sempre é respeitado em
-# todas as fases da conexão (medido durante o desenvolvimento: em alguns
-# testes a chamada ficou mais de 40s sem resolver nem dar erro, mesmo com
-# esse valor configurado). Por isso desistimos por conta própria depois de
-# TIMEOUT_GEMINI_SEGUNDOS, não importa o que a biblioteca esteja fazendo
-# por baixo -- ver _perguntar() mais abaixo.
-TIMEOUT_GEMINI_SEGUNDOS = 10
+# Tempo limite (em segundos) que o cliente do Ollama espera antes de
+# desistir -- sem isso, se o Ollama não estiver rodando ou demorar demais,
+# a chamada ficaria esperando pra sempre e travaria a caixinha em "Ada está
+# pensando...". Mesmo valor usado pelo Gerbert (testado na prática: uma
+# resposta chegou a levar ~16s).
+TIMEOUT_OLLAMA_SEGUNDOS = 30
+cliente_ollama = ollama.Client(timeout=TIMEOUT_OLLAMA_SEGUNDOS)
 
 # Instrução de sistema enviada à IA para ela sempre responder no papel da
 # Ada Lovelace. Ela sabe que o puzzle pede pra montar um "programa" com
@@ -261,61 +244,27 @@ class AdaChat:
 
     def _perguntar(self, pergunta):
         """Roda em uma thread separada (chamada por tratar_evento_teclado
-        ao apertar Enter): chama a API do Gemini pedindo uma resposta como
-        se fosse a Ada, e guarda o resultado em `self.resposta`.
-
-        A chamada de verdade acontece numa SEGUNDA thread interna
-        (`chamar_api`, logo abaixo), e esta função espera por ela no
-        máximo TIMEOUT_GEMINI_SEGUNDOS usando `concluido.wait(timeout=...)`
-        -- se a resposta não chegar a tempo, desistimos e mostramos erro,
-        MESMO QUE a chamada continue presa por baixo. Isso é necessário
-        porque o timeout embutido na biblioteca (http_options.timeout) não
-        se mostrou confiável em todos os casos durante os testes (a
-        chamada às vezes ficou presa por mais de 40s sem dar erro nem
-        sucesso, mesmo configurado pra desistir em 30s) -- então em vez de
-        confiar só nisso, garantimos o limite de tempo por conta própria.
+        ao apertar Enter): chama o modelo qwen2.5:0.5b (rodando localmente
+        via Ollama) pedindo uma resposta como se fosse a Ada, e guarda o
+        resultado em `self.resposta`. Mesma abordagem do Gerbert (Fase 1):
+        o timeout já embutido em `cliente_ollama` (ver TIMEOUT_OLLAMA_SEGUNDOS
+        lá em cima) é suficiente aqui, sem precisar de uma segunda thread
+        interna com `threading.Event` como na versão antiga com Gemini.
         """
-        resultado_caixa = {}
-        concluido = threading.Event()
-
-        def chamar_api():
-            try:
-                from google import genai
-                from google.genai import types
-
-                cliente = genai.Client(api_key=GEMINI_API_KEY)
-                resultado = cliente.models.generate_content(
-                    model=MODELO_ADA,
-                    contents=pergunta,
-                    config=types.GenerateContentConfig(system_instruction=PROMPT_SISTEMA_ADA),
-                )
-                resultado_caixa["texto"] = (resultado.text or "").strip()
-            except Exception as erro:
-                resultado_caixa["erro"] = erro
-            finally:
-                # Sinaliza que terminou (com sucesso ou erro) -- é isso que
-                # acorda o `concluido.wait()` logo abaixo, se ele ainda
-                # estiver esperando.
-                concluido.set()
-
-        threading.Thread(target=chamar_api, daemon=True).start()
-
-        # Espera no máximo TIMEOUT_GEMINI_SEGUNDOS por essa segunda
-        # thread. Se ela demorar mais que isso, `terminou_a_tempo` vem
-        # False e seguimos em frente -- a thread `chamar_api` continua
-        # rodando sozinha em segundo plano (é daemon, então não impede o
-        # jogo de fechar), mas a gente já desistiu de esperar por ela.
-        terminou_a_tempo = concluido.wait(timeout=TIMEOUT_GEMINI_SEGUNDOS)
-
-        if not terminou_a_tempo:
-            self.resposta = "Ada não respondeu a tempo, tente novamente."
-        elif "erro" in resultado_caixa:
-            # Cobre chave ausente/inválida, sem internet ou qualquer outro
-            # erro de conexão -- mesma filosofia do Gerbert na Fase 1:
-            # nunca deixar o jogador travado esperando.
+        try:
+            resultado = cliente_ollama.chat(
+                model=MODELO_ADA,
+                messages=[
+                    {"role": "system", "content": PROMPT_SISTEMA_ADA},
+                    {"role": "user", "content": pergunta},
+                ],
+            )
+            self.resposta = resultado["message"]["content"].strip()
+        except Exception:
+            # Cobre timeout, Ollama fora do ar ou qualquer outro erro --
+            # mesma filosofia do Gerbert: nunca deixar o jogador travado
+            # esperando.
             self.resposta = "Ada não conseguiu responder, tente novamente."
-        else:
-            self.resposta = resultado_caixa.get("texto", "")
         self.pensando = False
 
     def desenhar(self, tela, mouse_pos):

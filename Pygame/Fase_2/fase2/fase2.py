@@ -137,8 +137,23 @@ PAPER_GEAR_FLASH_SECONDS = 0.6
 # inteiro (tampo + pernas) como um único retângulo. Esses dois retângulos
 # são usados por _position_allowed() mais abaixo pra decidir onde o
 # personagem pode ou não pisar, para evitar que ele voe pelo cenário ou ande por lugares que não deve.
-FLOOR_RECT = pygame.Rect(20, 400, 960, 230)
+#
+# FLOOR_RECT.top = 495 (medido direto em background_oficina.png): é onde a
+# textura do chão de madeira realmente começa. Antes estava em 400, bem
+# acima da linha visual do chão -- não dava pra notar na maior parte da
+# sala porque a bancada (TABLE_RECT) já bloqueia essa faixa, mas perto da
+# janela e do lado direito (sem bancada cobrindo) o personagem conseguia
+# ficar com os pés "flutuando" sobre a parede.
+FLOOR_RECT = pygame.Rect(20, 495, 960, 135)
 TABLE_RECT = pygame.Rect(160, 355, 380, 175)
+
+# O canto onde a parede da janela encontra o chão fica na sombra e "recua"
+# mais do que o resto do cômodo (perspectiva) -- o chão ali só começa em
+# y=575 (medido na mesma imagem) e sobe até se juntar à linha geral do chão
+# (FLOOR_RECT.top) a partir de x=160. WINDOW_CORNER_Y_NEAR/_X_FIM descrevem
+# essa rampa, usada por _min_y_chao() logo abaixo.
+WINDOW_CORNER_X_FIM = 160
+WINDOW_CORNER_Y_NEAR = 575
 
 # Sala da máquina do tempo que só existe depois que o puzzle de Babbage é resolvido: uma transição (fade) troca o fundo da oficina pela
 # sala_maquina_tempo.png e leva o personagem pra lá, só  chão andável (no momento da transição o jogador não consegue mover).
@@ -327,6 +342,22 @@ def _draw_player(screen, pos, image, character_name, name_font):
     screen.blit(name_surf, name_surf.get_rect(midtop=(int(pos[0]), rect.bottom + 4)))
 
 
+def _min_y_chao(x, floor_rect):
+    ''' Devolve o menor y permitido pro chão nessa posição x -- normalmente
+    é só floor_rect.top, mas no canto da oficina onde a janela encontra o
+    chão (x entre FLOOR_RECT.left e WINDOW_CORNER_X_FIM) o chão real
+    começa mais embaixo (ver comentário de WINDOW_CORNER_Y_NEAR lá em
+    cima), então interpola uma rampa entre esse ponto e a linha geral do
+    chão em vez de usar um valor fixo. Só se aplica à oficina (floor_rect
+    é FLOOR_RECT) -- a sala da máquina do tempo não tem essa janela.
+    '''
+    if floor_rect is not FLOOR_RECT or x >= WINDOW_CORNER_X_FIM:
+        return floor_rect.top
+    x_travado = max(x, floor_rect.left)
+    progresso = (x_travado - floor_rect.left) / (WINDOW_CORNER_X_FIM - floor_rect.left)
+    return WINDOW_CORNER_Y_NEAR + (floor_rect.top - WINDOW_CORNER_Y_NEAR) * progresso
+
+
 def _position_allowed(pos, floor_rect, table_rect=None):
     ''' É True se o personagem pode ficar nessa posição: dentro do chão
     andável da sala atual e fora da área bloqueada da bancada (quando a
@@ -343,7 +374,7 @@ def _position_allowed(pos, floor_rect, table_rect=None):
     # pixel).
     if not (floor_rect.left + PLAYER_RADIUS <= x <= floor_rect.right - PLAYER_RADIUS):
         return False
-    if not (floor_rect.top + PLAYER_RADIUS <= y <= floor_rect.bottom - PLAYER_RADIUS):
+    if not (_min_y_chao(x, floor_rect) + PLAYER_RADIUS <= y <= floor_rect.bottom - PLAYER_RADIUS):
         return False
 
     if table_rect is not None:
