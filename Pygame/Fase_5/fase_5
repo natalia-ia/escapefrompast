@@ -1,0 +1,252 @@
+"""
+=====================================================================
+Fase 5: Z3 E COLOSSUS (1941-1943)
+=====================================================================
+"""
+import os
+import sys
+import pygame
+from inventario import Inventario, ItemColecionavel
+
+# =====================================================================
+# 1. CONFIGURAÇÕES GERAIS DA JANELA E DO JOGO
+# =====================================================================
+LARGURA, ALTURA = 960, 600
+FPS = 60
+
+# Tempo total da fase, em segundos (ajuste como preferir - 5 minutos aqui)
+TEMPO_LIMITE_SEGUNDOS = 5 * 60
+
+# Cores utilitárias (RGB)
+BRANCO      = (245, 245, 240)
+PRETO       = (15, 15, 15)
+CINZA       = (90, 90, 90)
+CINZA_CLARO = (180, 180, 180)
+VERDE       = (60, 170, 90)
+VERMELHO    = (190, 60, 60)
+AMARELO_SEPIA = (196, 164, 96)
+AZUL_ACO    = (80, 120, 150)   # tom "metálico" para combinar com o tema
+DOURADO_VALVULA = (200, 150, 60)
+
+# =====================================================================
+# 2. CAMINHOS DOS ASSETS -> PREENCHA AQUI COM SUAS IMAGENS
+# =====================================================================
+PASTA_DO_SCRIPT = os.path.dirname(os.path.abspath(__file__))
+
+
+def caminho_asset(nome_relativo):
+    """Monta o caminho absoluto de um asset a partir da pasta 'assets'
+    ao lado deste arquivo .py."""
+    return os.path.join(PASTA_DO_SCRIPT, nome_relativo)
+
+
+ASSETS = {
+    # Fundo da tela de MENU inicial. Sugestão: 960x600 px.
+    "fundo_intro": caminho_asset("assets/fundo_intro.png"),
+
+    # Avatar do jogador (mesmo personagem das outras fases, se quiser
+    # reaproveitar). Sugestão: 138x288 px, fundo transparente (PNG).
+    "avatar_parado": caminho_asset("assets/personagem_parado.png"),
+    "avatar_andando1": caminho_asset("assets/personagem_andando1.png"),
+    "avatar_andando2": caminho_asset("assets/personagem_andando2.png"),
+
+    # Segundo personagem selecionável no menu (mesmo padrão de
+    # 3 imagens: parado + 2 de caminhada).
+    "avatar2_parado": caminho_asset("assets/personagem2_parado.png"),
+    "avatar2_andando1": caminho_asset("assets/personagem2_andando1.png"),
+    "avatar2_andando2": caminho_asset("assets/personagem2_andando2.png"),
+
+    # Sprite do NPC: Konrad Zuse, parado no laboratório.
+    "npc": caminho_asset("assets/konrad_zuse.png"),
+
+    # Fundo da CENA 1: o laboratório danificado de Zuse, com espaço
+    # livre para o relé (pequeno) e o Z3 (grande). Sugestão: 960x600 px.
+    "fundo_cena1": caminho_asset("assets/laboratorio_zuse.png"),
+
+    # Sprite do relé queimado - pequeno objeto clicável na Cena 1.
+    "rele": caminho_asset("assets/rele_queimado.png"),
+
+    # Sprite do Z3 (o computador de Zuse) - fica na Cena 1, só clicável
+    # depois que o relé for encontrado.
+    "z3": caminho_asset("assets/z3.png"),
+
+    # Fundo da CENA 2: close-up do painel de circuitos do Z3, queimado,
+    # com os pontos de conexão por cima. Sugestão: 960x600 px.
+    "fundo_cena2": caminho_asset("assets/z3_circuitos.png"),
+
+    # Fundo da CENA DA DICA 1: fita perfurada remontada + circuito
+    # religado (uma imagem só, sem mais nada). Sugestão: 960x600 px.
+    "fundo_cena_dica1": caminho_asset("assets/fita_perfurada_remontada.png"),
+
+    # Fundo da CENA 3: a segunda ala do laboratório, onde fica o
+    # Colossus. Sugestão: 960x600 px.
+    "fundo_cena3": caminho_asset("assets/laboratorio_colossus.png"),
+
+    # Sprite do Colossus - objeto clicável na Cena 3 (mesma posição
+    # que o Z3 ocupava na Cena 1).
+    "colossus": caminho_asset("assets/colossus.png"),
+
+    # Fundo da CENA 4: close-up do painel do Colossus, com o cálculo
+    # a ser resolvido. Sugestão: 960x600 px.
+    "fundo_cena4": caminho_asset("assets/colossus_painel.png"),
+
+    # Ícone de seta usado na Cena 1 para ir até a Cena 3. Se o arquivo
+    # não existir, um triângulo simples é desenhado no lugar.
+    "seta_direita": caminho_asset("assets/seta_direita.png"),
+
+    # Telas finais.
+    "tela_vitoria": caminho_asset("assets/vitoria.png"),
+    "tela_derrota": caminho_asset("assets/derrota.png"),
+
+    # (Opcional) Fonte .ttf de época. Deixe None para usar a padrão.
+    "fonte": caminho_asset("assets/fonte_jogo.ttf"),
+}
+
+# =====================================================================
+# 3. FUNÇÕES AUXILIARES DE CARREGAMENTO (COM PLACEHOLDER AUTOMÁTICO)
+# =====================================================================
+def carregar_imagem(caminho, tamanho, cor_placeholder, texto_placeholder):
+    """Tenta carregar uma imagem do disco e redimensioná-la. Se o
+    arquivo não existir, gera um retângulo colorido com texto no
+    lugar, para o jogo continuar funcionando durante os testes."""
+    if caminho and os.path.isfile(caminho):
+        imagem = pygame.image.load(caminho).convert_alpha()
+        return pygame.transform.smoothscale(imagem, tamanho)
+
+    superficie = pygame.Surface(tamanho, pygame.SRCALPHA)
+    superficie.fill(cor_placeholder)
+    pygame.draw.rect(superficie, PRETO, superficie.get_rect(), width=3)
+
+    fonte = pygame.font.SysFont("arial", 18, bold=True)
+    linhas = texto_placeholder.split("\n")
+    y = tamanho[1] // 2 - (len(linhas) * 22) // 2
+    for linha in linhas:
+        texto_render = fonte.render(linha, True, PRETO)
+        rect_texto = texto_render.get_rect(center=(tamanho[0] // 2, y))
+        superficie.blit(texto_render, rect_texto)
+        y += 22
+    return superficie
+
+
+def carregar_fonte(caminho, tamanho):
+    """Carrega uma fonte customizada (.ttf) se disponível, ou usa uma
+    fonte padrão do sistema como alternativa."""
+    if caminho and os.path.isfile(caminho):
+        return pygame.font.Font(caminho, tamanho)
+    return pygame.font.SysFont("georgia", tamanho)
+
+# =====================================================================
+# 4. LÓGICA DOS DESAFIOS
+# =====================================================================
+# --- Desafio da Cena 2: reconectar os circuitos na ordem correta ---
+# Cada rótulo representa um ponto de conexão do painel do Z3. O
+# jogador precisa clicar nos pontos na ordem definida em
+# ORDEM_CORRETA_CIRCUITO. Troque livremente a ordem (ou os rótulos)
+# para mudar o desafio.
+RÓTULOS_CIRCUITO = ["A", "B", "C", "D"]
+ORDEM_CORRETA_CIRCUITO = ["C", "A", "D", "B"]
+
+# --- Desafio da Cena 4: o cálculo do Colossus ---
+# Troque o texto da conta e o resultado esperado à vontade - o
+# importante é que EXPRESSAO_CALCULO e RESULTADO_CALCULO combinem.
+EXPRESSAO_CALCULO = "7 x 6"
+RESULTADO_CALCULO = "42"
+
+# =====================================================================
+# 5. CLASSE: CAIXA DE TEXTO (aceita letras OU números, conforme o modo)
+# =====================================================================
+class CaixaDeTexto:
+    """Campo de entrada de texto simples. Use modo='letras' para
+    respostas em palavras (A-Z) ou modo='numeros' para respostas
+    numéricas (0-9) - é o que a Cena 4 desta fase usa."""
+
+    def __init__(self, rect, fonte, tamanho_maximo, modo="letras"):
+        self.rect = pygame.Rect(rect)
+        self.fonte = fonte
+        self.texto = ""
+        self.tamanho_maximo = tamanho_maximo
+        self.modo = modo  # "letras" ou "numeros"
+        self.ativa = True
+
+    def tratar_evento(self, evento):
+        """Processa eventos de teclado. Retorna True quando o jogador
+        pressiona ENTER (pedindo para validar a resposta)."""
+        if not self.ativa or evento.type != pygame.KEYDOWN:
+            return False
+
+        if evento.key == pygame.K_RETURN:
+            return True
+        elif evento.key == pygame.K_BACKSPACE:
+            self.texto = self.texto[:-1]
+        else:
+            tecla = evento.unicode
+            aceita = tecla.isdigit() if self.modo == "numeros" else tecla.isalpha()
+            if aceita and len(self.texto) < self.tamanho_maximo:
+                self.texto += tecla.upper() if self.modo == "letras" else tecla
+        return False
+
+    def desenhar(self, tela):
+        pygame.draw.rect(tela, BRANCO, self.rect, border_radius=6)
+        pygame.draw.rect(tela, PRETO, self.rect, width=2, border_radius=6)
+        texto_render = self.fonte.render(self.texto, True, PRETO)
+        tela.blit(
+            texto_render,
+            (self.rect.x + 10, self.rect.y + (self.rect.height - texto_render.get_height()) // 2),
+        )
+        if pygame.time.get_ticks() % 1000 < 500:
+            cursor_x = self.rect.x + 10 + texto_render.get_width() + 2
+            pygame.draw.line(
+                tela, PRETO,
+                (cursor_x, self.rect.y + 8),
+                (cursor_x, self.rect.y + self.rect.height - 8), 2,
+            )
+
+# =====================================================================
+# 5. CLASSE: CAIXA DE TEXTO (aceita letras OU números, conforme o modo)
+# =====================================================================
+class CaixaDeTexto:
+    """Campo de entrada de texto simples. Use modo='letras' para
+    respostas em palavras (A-Z) ou modo='numeros' para respostas
+    numéricas (0-9) - é o que a Cena 4 desta fase usa."""
+
+    def __init__(self, rect, fonte, tamanho_maximo, modo="letras"):
+        self.rect = pygame.Rect(rect)
+        self.fonte = fonte
+        self.texto = ""
+        self.tamanho_maximo = tamanho_maximo
+        self.modo = modo  # "letras" ou "numeros"
+        self.ativa = True
+
+    def tratar_evento(self, evento):
+        """Processa eventos de teclado. Retorna True quando o jogador
+        pressiona ENTER (pedindo para validar a resposta)."""
+        if not self.ativa or evento.type != pygame.KEYDOWN:
+            return False
+
+        if evento.key == pygame.K_RETURN:
+            return True
+        elif evento.key == pygame.K_BACKSPACE:
+            self.texto = self.texto[:-1]
+        else:
+            tecla = evento.unicode
+            aceita = tecla.isdigit() if self.modo == "numeros" else tecla.isalpha()
+            if aceita and len(self.texto) < self.tamanho_maximo:
+                self.texto += tecla.upper() if self.modo == "letras" else tecla
+        return False
+
+    def desenhar(self, tela):
+        pygame.draw.rect(tela, BRANCO, self.rect, border_radius=6)
+        pygame.draw.rect(tela, PRETO, self.rect, width=2, border_radius=6)
+        texto_render = self.fonte.render(self.texto, True, PRETO)
+        tela.blit(
+            texto_render,
+            (self.rect.x + 10, self.rect.y + (self.rect.height - texto_render.get_height()) // 2),
+        )
+        if pygame.time.get_ticks() % 1000 < 500:
+            cursor_x = self.rect.x + 10 + texto_render.get_width() + 2
+            pygame.draw.line(
+                tela, PRETO,
+                (cursor_x, self.rect.y + 8),
+                (cursor_x, self.rect.y + self.rect.height - 8), 2,
+            )
+

@@ -109,6 +109,12 @@ ASSETS = {
     "livro": caminho_asset("assets/livro.png"),
     "fundo_cena_dica": caminho_asset("assets/cena_dica.png"),
 
+    # Segundo personagem selecionável no menu (mesmo padrão de
+    # 3 imagens: parado + 2 de caminhada).
+    "avatar2_parado": caminho_asset("assets/personagem2_parado.png"),
+    "avatar2_andando1": caminho_asset("assets/personagem2_andando1.png"),
+    "avatar2_andando2": caminho_asset("assets/personagem2_andando2.png"),
+
     # Sprite da Máquina de Turing que fica "dentro" da Cena 1
     # (parada, aguardando interação). Fundo transparente (PNG).
     "maquina": caminho_asset("assets/maquina_turing.png"),
@@ -455,6 +461,29 @@ class Jogo:
         self.img_avatar_andando2 = carregar_imagem(
             ASSETS["avatar_andando2"], (138, 288), CINZA, "ANDANDO 2",
         )
+        self.img_avatar2_parado = carregar_imagem(
+            ASSETS["avatar2_parado"], (138, 288), (120, 70, 70), "PARADO 2",
+        )
+        self.img_avatar2_andando1 = carregar_imagem(
+            ASSETS["avatar2_andando1"], (138, 288), (120, 70, 70), "ANDANDO 2.1",
+        )
+        self.img_avatar2_andando2 = carregar_imagem(
+            ASSETS["avatar2_andando2"], (138, 288), (120, 70, 70), "ANDANDO 2.2",
+        )
+
+        self.opcoes_personagens = [
+            {
+                "nome": "Personagem 1",
+                "parado": self.img_avatar_parado,
+                "andando": [self.img_avatar_andando1, self.img_avatar_andando2],
+            },
+            {
+                "nome": "Personagem 2",
+                "parado": self.img_avatar2_parado,
+                "andando": [self.img_avatar2_andando1, self.img_avatar2_andando2],
+            },
+        ]
+        self.personagem_selecionado = 0  # índice do personagem ativo (0 = o primeiro)
 
         self.jogador = Jogador(
             frame_parado=self.img_avatar_parado,

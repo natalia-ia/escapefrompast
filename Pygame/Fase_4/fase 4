@@ -98,6 +98,12 @@ ASSETS = {
     "avatar_andando1": caminho_asset("assets/personagem_andando1.png"),
     "avatar_andando2": caminho_asset("assets/personagem_andando2.png"),
 
+    # Segundo personagem selecionável no menu (mesmo padrão de
+    # 3 imagens: parado + 2 de caminhada).
+    "avatar2_parado": caminho_asset("assets/personagem2_parado.png"),
+    "avatar2_andando1": caminho_asset("assets/personagem2_andando1.png"),
+    "avatar2_andando2": caminho_asset("assets/personagem2_andando2.png"),
+
     # Sprite do NPC (personagem parado na sala, sem interação por
     # enquanto). Fundo transparente (PNG). Mesmo tamanho do avatar.
     "npc": caminho_asset("assets/professor_turing.png"),
