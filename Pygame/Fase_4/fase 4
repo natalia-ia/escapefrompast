@@ -43,6 +43,8 @@ import string
 import sys
 import math
 import pygame
+from inventario import Inventario, ItemColecionavel
+from npc_chatbot import NPCChatbot
 
 # =====================================================================
 # 1. CONFIGURAÇÕES GERAIS DA JANELA E DO JOGO
@@ -51,7 +53,8 @@ LARGURA, ALTURA = 960, 600
 FPS = 60
 
 # Tempo total da fase, em segundos (5 minutos)
-TEMPO_LIMITE_SEGUNDOS = 1 * 60
+TEMPO_LIMITE_SEGUNDOS = 5 * 60
+FADE_DURATION_SECONDS = 0.35 # transição de tela
 
 # Cores utilitárias (RGB) usadas em textos e placeholders
 BRANCO      = (245, 245, 240)
@@ -95,6 +98,12 @@ ASSETS = {
     "avatar_andando1": caminho_asset("assets/personagem_andando1.png"),
     "avatar_andando2": caminho_asset("assets/personagem_andando2.png"),
 
+    # Segundo personagem selecionável no menu (mesmo padrão de
+    # 3 imagens: parado + 2 de caminhada).
+    "avatar2_parado": caminho_asset("assets/personagem2_parado.png"),
+    "avatar2_andando1": caminho_asset("assets/personagem2_andando1.png"),
+    "avatar2_andando2": caminho_asset("assets/personagem2_andando2.png"),
+
     # Sprite do NPC (personagem parado na sala, sem interação por
     # enquanto). Fundo transparente (PNG). Mesmo tamanho do avatar.
     "npc": caminho_asset("assets/professor_turing.png"),
@@ -109,6 +118,10 @@ ASSETS = {
     # Sprite da Máquina de Turing que fica "dentro" da Cena 1
     # (parada, aguardando interação). Fundo transparente (PNG).
     "maquina": caminho_asset("assets/maquina_turing.png"),
+
+    # Fundo da CENA DA DICA 2: o bilhete que saiu da máquina,
+    # revelando que a senha da cápsula do tempo é "Bombe".
+    "fundo_cena_dica2": caminho_asset("assets/cena_dica2_bilhete.png"),
 
     # Fundo da CENA 2: close-up da máquina, mostrando o painel/fita
     # onde o enigma binário será exibido por cima.
@@ -363,14 +376,19 @@ class Jogo:
     CENA1 = "cena1"
     CENA2 = "cena2"
     CENA_DICA = "cena_dica"
+    CENA_DICA_2 = "cena_dica_2" 
     VITORIA = "vitoria"
     DERROTA = "derrota"
 
-    def __init__(self):
+
+    def __init__(self, inventario=None):
         pygame.init()
         self.tela = pygame.display.set_mode((LARGURA, ALTURA))
         pygame.display.set_caption("Fase 4 - Os fundamentos teóricos")
         self.relogio = pygame.time.Clock()
+
+        # --- Inventário de colecionáveis --- (ADICIONE ESSE BLOCO)
+        self.inventario = inventario if inventario is not None else Inventario()
 
         # --- Fontes ---
         self.fonte_titulo = carregar_fonte(ASSETS["fonte"], 30)
@@ -407,11 +425,10 @@ class Jogo:
             frames_andando=[self.img_avatar_andando1, self.img_avatar_andando2],
             posicao_inicial=(80, ALTURA - 300),
         )
-        
+
         self.img_npc = carregar_imagem(
             ASSETS["npc"], (138, 288), (110, 90, 130), "NPC",
         )
-
         self.img_livro = carregar_imagem(
             ASSETS["livro"], (50, 60), AMARELO_SEPIA, "LIVRO",
         )
@@ -419,7 +436,10 @@ class Jogo:
             ASSETS["fundo_cena_dica"], (LARGURA, ALTURA), (70, 55, 40),
             "FUNDO DA CENA\nDE DICA",
         )
-
+        self.img_fundo_cena_dica2 = carregar_imagem(
+            ASSETS["fundo_cena_dica2"], (LARGURA, ALTURA), (60, 45, 30),
+            "FUNDO DA CENA DE\nDICA 2 (bilhete)",
+        )
         self.img_vitoria = carregar_imagem(
             ASSETS["tela_vitoria"], (LARGURA, ALTURA), VERDE, "TELA DE VITÓRIA",
         )
@@ -448,6 +468,21 @@ class Jogo:
 
         # Posição do NPC na Cena 1 (parado, sem interação por enquanto)   
         self.rect_npc = self.img_npc.get_rect(midleft=(500, ALTURA - 180))
+        # --- Chatbot do NPC (Professor Turing) integrado à IA local (Ollama) ---
+        self.npc_chat = NPCChatbot(
+            rect_npc=self.rect_npc,
+            nome_npc="Prof. Turing",
+            contexto_fase=(
+                "Você é o Professor Alan Turing, em 1936, dentro de um jogo de escape "
+                "room educativo. Responda SOMENTE perguntas relacionadas à Fase 4: "
+                "a Máquina de Turing, o enigma da fita binária (blocos de 5 bits que "
+                "representam letras do alfabeto, A=1 a Z=26), e o contexto histórico "
+                "de 1936. Se o jogador perguntar algo fora desse tema, responda "
+                "educadamente que só pode falar sobre esta fase. "
+                "Responda sempre em português, em no máximo 3 frases curtas, sem "
+                "nunca revelar diretamente a palavra-solução do enigma."
+            ),
+        )
 
         # Ponto onde o jogador vai parar ao clicar na máquina (um pouco à
         # esquerda dela, para não ficar "dentro" do sprite)
@@ -473,6 +508,23 @@ class Jogo:
             fonte=self.fonte_texto,
             tamanho_maximo=len(PALAVRA_SOLUCAO),
         )
+        self.botao_voltar_dica2 = pygame.Rect(0, 0, 160, 50)
+        self.botao_voltar_dica2.bottomleft = (30, ALTURA - 30)
+
+        # --- Bilhete clicável dentro da Cena de Dica 2 ---
+        # Controla se o jogador já coletou o bilhete (evita coletar
+        # de novo, e muda a aparência do cursor sobre ele)
+        self.bilhete_coletado = False
+
+        # AJUSTE essas coordenadas para coincidir com onde o bilhete
+        # aparece visualmente na sua imagem de fundo (cena_dica2_bilhete.png)
+        self.rect_bilhete = pygame.Rect(0, 0, 220, 140)
+        self.rect_bilhete.center = (LARGURA // 2, ALTURA // 2 + 60)
+
+        # --- Ícone de inventário (canto inferior direito, sempre visível) ---
+        self.botao_inventario = pygame.Rect(0, 0, 70, 70)
+        self.botao_inventario.bottomright = (LARGURA - 20, ALTURA - 20)
+        self.mostrar_painel_inventario = False  # controla se o painel está aberto
 
         # --- Estado do jogo ---
         self.estado = Jogo.MENU
@@ -546,15 +598,22 @@ class Jogo:
 
         self.tela.blit(self.img_fundo_cena1, (0, 0))
         self.tela.blit(self.img_maquina, self.rect_maquina)
+        
         self.tela.blit(self.img_npc, self.rect_npc)
         self.tela.blit(self.img_livro, self.rect_livro)
         self.jogador.desenhar(self.tela)
         self.desenhar_cronometro()
+        self.desenhar_botao_inventario()
         
-        
+        # --- Chatbot do NPC ---
+        if self.npc_chat.perto_do_jogador(self.jogador.rect) and not self.npc_chat.dialogo_aberto:
+            self.npc_chat.desenhar_dica_interacao(self.tela, self.fonte_pequena)
+        self.npc_chat.desenhar(self.tela, self.fonte_texto, self.fonte_pequena, LARGURA, ALTURA)
 
         
     def atualizar_cena1(self, teclas):
+        if self.npc_chat.dialogo_aberto:
+            return
         chegou = self.jogador.mover(teclas, self.limites_sala)
         if chegou and self.proximo_estado_ao_chegar is not None:
             self.mensagem_erro = ""
@@ -567,6 +626,7 @@ class Jogo:
     def desenhar_cena_dica(self):
         self.tela.blit(self.img_fundo_cena_dica, (0, 0))
         self.desenhar_cronometro()
+        self.desenhar_botao_inventario()
 
         mouse_pos = pygame.mouse.get_pos()
         cor_botao = VERDE if self.botao_voltar_dica.collidepoint(mouse_pos) else AMARELO_SEPIA
@@ -629,10 +689,84 @@ class Jogo:
         correta, avança para a tela de vitória; caso contrário, mostra
         uma mensagem de erro e limpa o campo para nova tentativa."""
         if self.caixa_resposta.texto == PALAVRA_SOLUCAO:
-            self.estado = Jogo.VITORIA
+            self.estado = Jogo.CENA_DICA_2
         else:
             self.mensagem_erro = "Código incorreto. Tente novamente!"
             self.caixa_resposta.texto = ""
+
+    # -----------------------------------------------------------------
+    # TELA: CENA DA DICA 2 - BILHETE DA MÁQUINA 
+    # -----------------------------------------------------------------
+    def desenhar_cena_dica_2(self):
+        """Mostra o bilhete revelado pela máquina, com a senha da
+        cápsula do tempo. Abre automaticamente ao decifrar o código
+        corretamente. Sem textos ou botões além do cronômetro/vidas
+        e do botão 'Voltar', no rodapé esquerdo."""
+        self.tela.blit(self.img_fundo_cena_dica2, (0, 0))
+        self.desenhar_cronometro()
+        self.desenhar_botao_inventario()
+
+        mouse_pos = pygame.mouse.get_pos()
+
+        # --- Cursor de mão sobre o bilhete, só enquanto não foi coletado ---
+        if not self.bilhete_coletado and self.rect_bilhete.collidepoint(mouse_pos):
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
+        else:
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
+
+        # --- Dica visual: um contorno pulsando/discreto ao redor do bilhete,
+        # só enquanto ele ainda pode ser coletado ---
+        if not self.bilhete_coletado:
+            pygame.draw.rect(self.tela, AMARELO_SEPIA, self.rect_bilhete, width=3, border_radius=6)
+
+
+        cor_botao = VERDE if self.botao_voltar_dica2.collidepoint(mouse_pos) else AMARELO_SEPIA
+
+        pygame.draw.rect(self.tela, cor_botao, self.botao_voltar_dica2, border_radius=10)
+        pygame.draw.rect(self.tela, BRANCO, self.botao_voltar_dica2, width=2, border_radius=10)
+
+        texto_botao = self.fonte_pequena.render("Voltar", True, PRETO)
+        self.tela.blit(texto_botao, texto_botao.get_rect(center=self.botao_voltar_dica2.center))
+
+    def desenhar_botao_inventario(self):
+        """Ícone fixo no canto inferior direito, clicável a qualquer
+        momento para abrir/fechar o painel de itens coletados."""
+        mouse_pos = pygame.mouse.get_pos()
+        cor_botao = VERDE if self.botao_inventario.collidepoint(mouse_pos) else AMARELO_SEPIA
+
+        pygame.draw.rect(self.tela, cor_botao, self.botao_inventario, border_radius=10)
+        pygame.draw.rect(self.tela, BRANCO, self.botao_inventario, width=2, border_radius=10)
+
+        texto = self.fonte_pequena.render(str(self.inventario.quantidade()), True, PRETO)
+        self.tela.blit(texto, texto.get_rect(center=self.botao_inventario.center))
+
+    def desenhar_painel_inventario(self):
+        """Overlay mostrando a lista de itens coletados até agora.
+        Só aparece quando self.mostrar_painel_inventario é True."""
+        painel_rect = pygame.Rect(0, 0, 400, 300)
+        painel_rect.center = (LARGURA // 2, ALTURA // 2)
+
+        faixa = pygame.Surface(painel_rect.size, pygame.SRCALPHA)
+        faixa.fill((20, 20, 20, 230))
+        self.tela.blit(faixa, painel_rect.topleft)
+
+        pygame.draw.rect(self.tela, AMARELO_SEPIA, painel_rect, width=3, border_radius=10)
+
+        titulo = self.fonte_texto.render("Itens coletados", True, BRANCO)
+        self.tela.blit(titulo, titulo.get_rect(midtop=(painel_rect.centerx, painel_rect.top + 15)))
+
+        if self.inventario.quantidade() == 0:
+            vazio = self.fonte_pequena.render("Nenhum item ainda.", True, CINZA_CLARO)
+            self.tela.blit(vazio, vazio.get_rect(center=painel_rect.center))
+        else:
+            y = painel_rect.top + 60
+            for item in self.inventario.itens:
+                nome_render = self.fonte_pequena.render(f"- {item.nome}", True, BRANCO)
+                self.tela.blit(nome_render, (painel_rect.left + 20, y))
+                y += 30
+
+        dica = self.fonte_pequena.render("Clique no ícone novamente para fechar", True, CINZA_CLARO)
+        self.tela.blit(dica, dica.get_rect(midbottom=(painel_rect.centerx, painel_rect.bottom - 15)))
 
     # -----------------------------------------------------------------
     # TELAS FINAIS: VITÓRIA / DERROTA
@@ -644,6 +778,7 @@ class Jogo:
         centro = (LARGURA // 2, ALTURA // 2)
         self.tela.blit(sombra, sombra.get_rect(center=(centro[0] + 2, centro[1] + 2)))
         self.tela.blit(texto, texto.get_rect(center=centro))
+        self.desenhar_botao_inventario()
 
 
     def desenhar_derrota(self):
@@ -692,9 +827,16 @@ class Jogo:
                     rodando = False
 
                 elif evento.type == pygame.KEYDOWN:
+                    if self.estado == Jogo.CENA1:
+                        if self.npc_chat.dialogo_aberto:
+                            self.npc_chat.tratar_evento(evento)
+                        elif evento.key == pygame.K_e and self.npc_chat.perto_do_jogador(self.jogador.rect):
+                            self.npc_chat.abrir_dialogo()
+
                     if self.estado == Jogo.CENA2:
                         if evento.key == pygame.K_ESCAPE:
                             self.estado = Jogo.CENA1
+                        
                         else:
                             enter_pressionado = self.caixa_resposta.tratar_evento(evento)
                             if enter_pressionado:
@@ -712,6 +854,25 @@ class Jogo:
                     elif self.estado == Jogo.CENA1 and self.rect_maquina.collidepoint(evento.pos):
                         self.jogador.mover_ate(self.ponto_interacao_maquina)
                         self.proximo_estado_ao_chegar = Jogo.CENA2
+
+                    # Clique no ícone do inventário -> abre/fecha o painel
+                    elif self.estado in (Jogo.CENA1, Jogo.CENA2, Jogo.CENA_DICA_2) and self.botao_inventario.collidepoint(evento.pos):
+                        self.mostrar_painel_inventario = not self.mostrar_painel_inventario
+
+                    # clique no bilhete -> vira colecionável
+                    elif self.estado == Jogo.CENA_DICA_2 and not self.bilhete_coletado and self.rect_bilhete.collidepoint(evento.pos):
+                        item_bilhete = ItemColecionavel(
+                            nome="Bilhete da Máquina Turing-Engelhardt",
+                            descricao="Um pedaço de papel com o código da cápsula do tempo: Bombe.",
+                        )
+                        self.inventario.adicionar(item_bilhete)
+                        self.bilhete_coletado = True
+
+                    elif self.estado == Jogo.CENA_DICA_2 and self.botao_voltar_dica2.collidepoint(evento.pos):
+                        self.estado = Jogo.VITORIA
+
+                    elif self.estado == Jogo.VITORIA and self.botao_reiniciar_vitoria.collidepoint(evento.pos):
+                        return "vitoria"
 
                     elif self.estado == Jogo.CENA1 and self.rect_livro.collidepoint(evento.pos):
                         self.jogador.mover_ate(self.ponto_interacao_livro)
@@ -745,10 +906,16 @@ class Jogo:
                 self.desenhar_cena_dica()        
             elif self.estado == Jogo.CENA2:
                 self.desenhar_cena2()
+            elif self.estado == Jogo.CENA_DICA_2:
+                self.desenhar_cena_dica_2()
             elif self.estado == Jogo.VITORIA:
                 self.desenhar_vitoria()
             elif self.estado == Jogo.DERROTA:
                 self.desenhar_derrota()
+                    
+            
+            if self.mostrar_painel_inventario and self.estado in (Jogo.CENA1, Jogo.CENA2, Jogo.CENA_DICA_2):
+                self.desenhar_painel_inventario()
 
             pygame.display.flip()
             self.relogio.tick(FPS)
