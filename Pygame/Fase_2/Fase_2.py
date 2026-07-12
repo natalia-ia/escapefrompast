@@ -1,3 +1,9 @@
+
+
+
+
+
+
 """
 Este arquivo é o ponto de entrada único do jogo -- é ele que você executa
 (python Fase_2.py) pra abrir o jogo inteiro a partir do menu.
