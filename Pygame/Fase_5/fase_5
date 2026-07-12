@@ -249,6 +249,17 @@ class CaixaDeTexto:
                 (cursor_x, self.rect.y + 8),
                 (cursor_x, self.rect.y + self.rect.height - 8), 2,
             )
+        
+# =====================================================================
+# 6. CLASSE: JOGADOR (AVATAR CONTROLÁVEL)
+# =====================================================================
+class Jogador:
+    """Avatar do jogador. Move-se manualmente (teclado) ou
+    automaticamente até um destino (ao clicar num objeto interativo)."""
+
+    VELOCIDADE = 4
+    INTERVALO_ANIMACAO_MS = 150
+
 
     def __init__(self, frame_parado, frames_andando, posicao_inicial):
         self.frame_parado = frame_parado
@@ -541,7 +552,7 @@ class Jogo:
         pygame.draw.rect(self.tela, (0, 0, 0, 150), fundo_rect, border_radius=8)
         render = self.fonte_texto.render(texto, True, cor)
         self.tela.blit(render, render.get_rect(center=fundo_rect.center))
-        
+
     # -----------------------------------------------------------------
     # TELA: MENU INICIAL
     # -----------------------------------------------------------------
@@ -563,3 +574,478 @@ class Jogo:
             "Clique em Iniciar ou pressione ENTER", True, CINZA_CLARO,
         )
         self.tela.blit(instrucao, instrucao.get_rect(center=(LARGURA - 270, 550)))
+
+    # -----------------------------------------------------------------
+    # TELA: CENA 1 - LABORATÓRIO + RELÉ + Z3 + NPC + SETA
+    # -----------------------------------------------------------------
+    def desenhar_cena1(self):
+        mouse_pos = pygame.mouse.get_pos()
+
+        # O Z3 só reage ao mouse (cursor de mão) depois do relé encontrado
+        z3_esta_clicavel = self.rele_encontrado
+        sobre_algo_clicavel = (
+            self.rect_rele.collidepoint(mouse_pos) and not self.rele_encontrado
+        ) or (
+            z3_esta_clicavel and self.rect_z3.collidepoint(mouse_pos)
+        ) or self.rect_seta_avancar.collidepoint(mouse_pos)
+
+        pygame.mouse.set_cursor(
+            pygame.SYSTEM_CURSOR_HAND if sobre_algo_clicavel else pygame.SYSTEM_CURSOR_ARROW
+        )
+
+        self.tela.blit(self.img_fundo_cena1, (0, 0))
+
+        # O Z3 aparece sempre (é parte do cenário), mas só ganha um
+        # contorno de destaque depois que o relé foi encontrado
+        self.tela.blit(self.img_z3, self.rect_z3)
+        if self.rele_encontrado:
+            pygame.draw.rect(self.tela, AMARELO_SEPIA, self.rect_z3, width=3, border_radius=6)
+
+        # O relé só aparece enquanto não foi coletado
+        if not self.rele_encontrado:
+            self.tela.blit(self.img_rele, self.rect_rele)
+            pygame.draw.rect(self.tela, AMARELO_SEPIA, self.rect_rele, width=3, border_radius=6)
+
+        self.tela.blit(self.img_npc, self.rect_npc)
+        self.jogador.desenhar(self.tela)
+        self.desenhar_seta_avancar(self.rect_seta_avancar)
+        self.desenhar_cronometro()
+        self.desenhar_botao_inventario()
+
+    def desenhar_seta_avancar(self, rect):
+        """Desenha a seta de navegação (usa a imagem em
+        ASSETS['seta_direita'] se existir; senão, um triângulo simples)."""
+        if self.img_seta_direita is not None:
+            self.tela.blit(self.img_seta_direita, rect)
+            return
+
+        pygame.draw.circle(self.tela, (0, 0, 0), rect.center, rect.width // 2)
+        pygame.draw.circle(self.tela, AMARELO_SEPIA, rect.center, rect.width // 2, width=2)
+        ponta = (rect.centerx + 12, rect.centery)
+        base_superior = (rect.centerx - 8, rect.centery - 14)
+        base_inferior = (rect.centerx - 8, rect.centery + 14)
+        pygame.draw.polygon(self.tela, AMARELO_SEPIA, [ponta, base_superior, base_inferior])
+
+    def atualizar_cena1(self, teclas):
+        chegou = self.jogador.mover(teclas, self.limites_sala)
+        if chegou and self.proximo_estado_ao_chegar is not None:
+            self.mensagem_erro = ""
+            proximo = self.proximo_estado_ao_chegar
+            self.proximo_estado_ao_chegar = None
+            if proximo == Jogo.CENA3:
+                self.jogador.rect.topleft = (40, self.jogador.rect.top)
+            self.estado = proximo
+
+    # -----------------------------------------------------------------
+    # TELA: CENA 2 - RECONECTAR OS CIRCUITOS DO Z3
+    # -----------------------------------------------------------------
+    def desenhar_cena2(self):
+        self.tela.blit(self.img_fundo_cena2, (0, 0))
+        self.desenhar_cronometro()
+        self.desenhar_botao_inventario()
+
+        titulo = self.fonte_texto.render(
+            "Reconecte os circuitos na ordem correta:", True, BRANCO,
+        )
+        self.tela.blit(titulo, titulo.get_rect(center=(LARGURA // 2, 100)))
+
+        # --- Desenha os 4 nós do circuito ---
+        for rotulo, rect in self.nos_circuito.items():
+            ja_conectado = rotulo in self.progresso_circuito
+            cor = VERDE if ja_conectado else AZUL_ACO
+            pygame.draw.circle(self.tela, cor, rect.center, rect.width // 2)
+            pygame.draw.circle(self.tela, BRANCO, rect.center, rect.width // 2, width=3)
+            texto_no = self.fonte_texto.render(rotulo, True, BRANCO)
+            self.tela.blit(texto_no, texto_no.get_rect(center=rect.center))
+
+        # --- Progresso (quantos já conectados) ---
+        progresso_texto = self.fonte_pequena.render(
+            f"Conectados: {len(self.progresso_circuito)}/{len(ORDEM_CORRETA_CIRCUITO)}",
+            True, CINZA_CLARO,
+        )
+        self.tela.blit(progresso_texto, progresso_texto.get_rect(center=(LARGURA // 2, 500)))
+
+        if self.mensagem_erro_circuito:
+            render_erro = self.fonte_pequena.render(self.mensagem_erro_circuito, True, VERMELHO)
+            self.tela.blit(render_erro, render_erro.get_rect(center=(LARGURA // 2, 530)))
+
+        dica_voltar = self.fonte_pequena.render("ESC para voltar à sala", True, CINZA_CLARO)
+        self.tela.blit(dica_voltar, (20, ALTURA - 35))
+
+    def clicar_no_circuito(self, posicao_mouse):
+        """Verifica se o clique caiu em algum nó do circuito ainda não
+        conectado, e avança (ou reseta) o progresso de acordo com a
+        ordem correta. Chamado pelo laço de eventos em CENA2."""
+        for rotulo, rect in self.nos_circuito.items():
+            if rect.collidepoint(posicao_mouse) and rotulo not in self.progresso_circuito:
+                indice_esperado = len(self.progresso_circuito)
+                if rotulo == ORDEM_CORRETA_CIRCUITO[indice_esperado]:
+                    self.progresso_circuito.append(rotulo)
+                    self.mensagem_erro_circuito = ""
+                    if len(self.progresso_circuito) == len(ORDEM_CORRETA_CIRCUITO):
+                        # Circuito religado! Segue para a Cena de Dica 1.
+                        self.estado = Jogo.CENA_DICA1
+                else:
+                    self.mensagem_erro_circuito = "Conexão errada! O circuito resetou."
+                    self.progresso_circuito = []
+                break
+
+    # -----------------------------------------------------------------
+    # TELA: CENA DA DICA 1 - APENAS IMAGEM + BOTÃO VOLTAR
+    # -----------------------------------------------------------------
+    def desenhar_cena_dica1(self):
+        self.tela.blit(self.img_fundo_cena_dica1, (0, 0))
+        self.desenhar_cronometro()
+        self.desenhar_botao_inventario()
+
+        mouse_pos = pygame.mouse.get_pos()
+        cor_botao = VERDE if self.botao_voltar_dica1.collidepoint(mouse_pos) else AMARELO_SEPIA
+
+        pygame.draw.rect(self.tela, cor_botao, self.botao_voltar_dica1, border_radius=10)
+        pygame.draw.rect(self.tela, BRANCO, self.botao_voltar_dica1, width=2, border_radius=10)
+
+        texto_botao = self.fonte_pequena.render("Voltar", True, PRETO)
+        self.tela.blit(texto_botao, texto_botao.get_rect(center=self.botao_voltar_dica1.center))
+
+    # -----------------------------------------------------------------
+    # TELA: CENA 3 - ALA DO COLOSSUS
+    # -----------------------------------------------------------------
+    def desenhar_cena3(self):
+        mouse_pos = pygame.mouse.get_pos()
+        if self.rect_colossus.collidepoint(mouse_pos):
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
+        else:
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
+
+        self.tela.blit(self.img_fundo_cena3, (0, 0))
+        self.tela.blit(self.img_colossus, self.rect_colossus)
+        self.jogador.desenhar(self.tela)
+        self.desenhar_cronometro()
+        self.desenhar_botao_inventario()
+
+        cor_botao = VERDE if self.botao_voltar_cena3.collidepoint(mouse_pos) else AMARELO_SEPIA
+        pygame.draw.rect(self.tela, cor_botao, self.botao_voltar_cena3, border_radius=10)
+        pygame.draw.rect(self.tela, BRANCO, self.botao_voltar_cena3, width=2, border_radius=10)
+        texto_botao = self.fonte_pequena.render("Voltar", True, PRETO)
+        self.tela.blit(texto_botao, texto_botao.get_rect(center=self.botao_voltar_cena3.center))
+
+    def atualizar_cena3(self, teclas):
+        chegou = self.jogador.mover(teclas, self.limites_sala)
+        if chegou and self.proximo_estado_ao_chegar is not None:
+            self.mensagem_erro = ""
+            self.estado = self.proximo_estado_ao_chegar
+            self.proximo_estado_ao_chegar = None
+
+    # -----------------------------------------------------------------
+    # TELA: CENA 4 - CÁLCULO DO COLOSSUS (RESPOSTA NUMÉRICA)
+    # -----------------------------------------------------------------
+    def desenhar_cena4(self):
+        self.tela.blit(self.img_fundo_cena4, (0, 0))
+        self.desenhar_cronometro()
+        self.desenhar_botao_inventario()
+
+        titulo = self.fonte_texto.render(
+            "Resolva o cálculo para verificar o Colossus:", True, BRANCO,
+        )
+        self.tela.blit(titulo, titulo.get_rect(center=(LARGURA // 2, 180)))
+
+        expressao = self.fonte_titulo.render(f"{EXPRESSAO_CALCULO} = ?", True, DOURADO_VALVULA)
+        self.tela.blit(expressao, expressao.get_rect(center=(LARGURA // 2, 240)))
+
+        self.caixa_resposta_cena4.desenhar(self.tela)
+
+        if self.mensagem_erro_cena4:
+            render_erro = self.fonte_pequena.render(self.mensagem_erro_cena4, True, VERMELHO)
+            self.tela.blit(render_erro, render_erro.get_rect(center=(LARGURA // 2, 400)))
+
+        dica_voltar = self.fonte_pequena.render("ESC para voltar", True, CINZA_CLARO)
+        self.tela.blit(dica_voltar, (20, ALTURA - 35))
+
+        mouse_pos = pygame.mouse.get_pos()
+        cor_botao = VERDE if self.botao_voltar_cena4.collidepoint(mouse_pos) else AMARELO_SEPIA
+        pygame.draw.rect(self.tela, cor_botao, self.botao_voltar_cena4, border_radius=10)
+        pygame.draw.rect(self.tela, BRANCO, self.botao_voltar_cena4, width=2, border_radius=10)
+        texto_botao = self.fonte_pequena.render("Voltar", True, PRETO)
+        self.tela.blit(texto_botao, texto_botao.get_rect(center=self.botao_voltar_cena4.center))
+
+    def validar_calculo_colossus(self):
+        """Compara a resposta numérica com RESULTADO_CALCULO. Se
+        acertar, coleta a peça/sequência final e vai DIRETO para a
+        Vitória - sem nenhuma cena intermediária."""
+        if self.caixa_resposta_cena4.texto == RESULTADO_CALCULO:
+            item_final = ItemColecionavel(
+                nome="Sequência Numérica do Colossus",
+                descricao="O componente/código que vai reparar a cápsula do tempo.",
+            )
+            self.inventario.adicionar(item_final)
+            self.estado = Jogo.VITORIA
+        else:
+            self.mensagem_erro_cena4 = "Cálculo incorreto. Tente novamente!"
+            self.caixa_resposta_cena4.texto = ""
+
+
+    # -----------------------------------------------------------------
+    # INVENTÁRIO (ícone, painel, e visualização de item)
+    # -----------------------------------------------------------------
+    def desenhar_botao_inventario(self):
+        mouse_pos = pygame.mouse.get_pos()
+        cor_botao = VERDE if self.botao_inventario.collidepoint(mouse_pos) else AMARELO_SEPIA
+
+        pygame.draw.rect(self.tela, cor_botao, self.botao_inventario, border_radius=10)
+        pygame.draw.rect(self.tela, BRANCO, self.botao_inventario, width=2, border_radius=10)
+
+        texto = self.fonte_pequena.render(str(self.inventario.quantidade()), True, PRETO)
+        self.tela.blit(texto, texto.get_rect(center=self.botao_inventario.center))
+
+    def rect_item_no_painel(self, indice):
+        """Calcula o retângulo clicável de um item dentro do painel,
+        dado seu índice na lista - usado tanto para desenhar quanto
+        para detectar o clique, garantindo que os dois combinem."""
+        painel_rect = pygame.Rect(0, 0, 400, 300)
+        painel_rect.center = (LARGURA // 2, ALTURA // 2)
+        y = painel_rect.top + 60 + indice * 30
+        return pygame.Rect(painel_rect.left + 15, y - 4, 370, 26)
+
+    def desenhar_painel_inventario(self):
+        painel_rect = pygame.Rect(0, 0, 400, 300)
+        painel_rect.center = (LARGURA // 2, ALTURA // 2)
+
+        faixa = pygame.Surface(painel_rect.size, pygame.SRCALPHA)
+        faixa.fill((20, 20, 20, 230))
+        self.tela.blit(faixa, painel_rect.topleft)
+
+        pygame.draw.rect(self.tela, AMARELO_SEPIA, painel_rect, width=3, border_radius=10)
+
+        titulo = self.fonte_texto.render("Itens coletados", True, BRANCO)
+        self.tela.blit(titulo, titulo.get_rect(midtop=(painel_rect.centerx, painel_rect.top + 15)))
+
+        if self.inventario.quantidade() == 0:
+            vazio = self.fonte_pequena.render("Nenhum item ainda.", True, CINZA_CLARO)
+            self.tela.blit(vazio, vazio.get_rect(center=painel_rect.center))
+        else:
+            for indice, item in enumerate(self.inventario.itens):
+                rect_item = self.rect_item_no_painel(indice)
+                nome_render = self.fonte_pequena.render(f"- {item.nome}", True, BRANCO)
+                self.tela.blit(nome_render, (rect_item.left + 5, rect_item.top + 3))
+
+        dica = self.fonte_pequena.render(
+            "Clique num item para vê-lo. Clique no ícone para fechar.", True, CINZA_CLARO,
+        )
+        self.tela.blit(dica, dica.get_rect(midbottom=(painel_rect.centerx, painel_rect.bottom - 15)))
+
+    def desenhar_visualizacao_item(self):
+        imagem = self.imagens_dos_itens.get(self.item_em_visualizacao)
+        if imagem is not None:
+            # Centraliza a imagem do item (que pode ser pequena, tipo
+            # o relé) sobre um fundo escuro, em vez de esticá-la
+            fundo = pygame.Surface((LARGURA, ALTURA))
+            fundo.fill((15, 15, 15))
+            self.tela.blit(fundo, (0, 0))
+            self.tela.blit(imagem, imagem.get_rect(center=(LARGURA // 2, ALTURA // 2)))
+
+        mouse_pos = pygame.mouse.get_pos()
+        cor_botao = VERDE if self.botao_fechar_item.collidepoint(mouse_pos) else AMARELO_SEPIA
+        pygame.draw.rect(self.tela, cor_botao, self.botao_fechar_item, border_radius=10)
+        pygame.draw.rect(self.tela, BRANCO, self.botao_fechar_item, width=2, border_radius=10)
+        texto_botao = self.fonte_pequena.render("Fechar", True, PRETO)
+        self.tela.blit(texto_botao, texto_botao.get_rect(center=self.botao_fechar_item.center))
+
+    # -----------------------------------------------------------------
+    # TELAS FINAIS: VITÓRIA / DERROTA
+    # -----------------------------------------------------------------
+    def desenhar_vitoria(self):
+        self.tela.blit(self.img_vitoria, (0, 0))
+        texto = self.fonte_titulo.render("Você concluiu, parabéns!", True, BRANCO)
+        sombra = self.fonte_titulo.render("Você concluiu, parabéns!", True, PRETO)
+        centro = (LARGURA // 2, ALTURA // 2)
+        self.tela.blit(sombra, sombra.get_rect(center=(centro[0] + 2, centro[1] + 2)))
+        self.tela.blit(texto, texto.get_rect(center=centro))
+
+        mouse_pos = pygame.mouse.get_pos()
+        cor_botao = VERDE if self.botao_reiniciar_vitoria.collidepoint(mouse_pos) else AMARELO_SEPIA
+        pygame.draw.rect(self.tela, cor_botao, self.botao_reiniciar_vitoria, border_radius=10)
+        pygame.draw.rect(self.tela, BRANCO, self.botao_reiniciar_vitoria, width=2, border_radius=10)
+        texto_botao = self.fonte_texto.render("Continuar", True, PRETO)
+        self.tela.blit(texto_botao, texto_botao.get_rect(center=self.botao_reiniciar_vitoria.center))
+
+        self.desenhar_botao_inventario()
+
+    def desenhar_derrota(self):
+        self.tela.blit(self.img_derrota, (0, 0))
+
+        mouse_pos = pygame.mouse.get_pos()
+        cor_botao = VERDE if self.botao_reiniciar_derrota.collidepoint(mouse_pos) else AMARELO_SEPIA
+
+        pygame.draw.rect(self.tela, cor_botao, self.botao_reiniciar_derrota, border_radius=10)
+        pygame.draw.rect(self.tela, BRANCO, self.botao_reiniciar_derrota, width=2, border_radius=10)
+
+        texto_botao = self.fonte_texto.render("Tentar novamente", True, PRETO)
+        self.tela.blit(texto_botao, texto_botao.get_rect(center=self.botao_reiniciar_derrota.center))
+
+        dica = self.fonte_pequena.render("(ou pressione R)", True, BRANCO)
+        self.tela.blit(dica, dica.get_rect(center=(LARGURA - 260, self.botao_reiniciar_derrota.bottom + 25)))
+
+    # -----------------------------------------------------------------
+    # REINÍCIO DA FASE
+    # -----------------------------------------------------------------
+    def reiniciar(self):
+        self.jogador.rect.topleft = (80, ALTURA - 300)
+        self.caixa_resposta_cena4.texto = ""
+        self.mensagem_erro = ""
+        self.mensagem_erro_cena4 = ""
+        self.mensagem_erro_circuito = ""
+        self.progresso_circuito = []
+        self.rele_encontrado = False
+        self.estado = Jogo.MENU
+        self.ticks_inicio = None
+        self.proximo_estado_ao_chegar = None
+
+    # -----------------------------------------------------------------
+    # LAÇO PRINCIPAL DO JOGO
+    # -----------------------------------------------------------------
+    def executar(self):
+        rodando = True
+        while rodando:
+            for evento in pygame.event.get():
+                if evento.type == pygame.QUIT:
+                    rodando = False
+
+                elif evento.type == pygame.KEYDOWN:
+                    if self.estado == Jogo.CENA2 and evento.key == pygame.K_ESCAPE:
+                        self.estado = Jogo.CENA1
+
+                    elif self.estado == Jogo.CENA4:
+                        if evento.key == pygame.K_ESCAPE:
+                            self.estado = Jogo.CENA3
+                        else:
+                            enter_pressionado = self.caixa_resposta_cena4.tratar_evento(evento)
+                            if enter_pressionado:
+                                self.validar_calculo_colossus()
+
+                    elif self.estado in (Jogo.VITORIA, Jogo.DERROTA) and evento.key == pygame.K_r:
+                        self.reiniciar()
+
+                elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+                    if self.estado == Jogo.MENU and self.botao_iniciar.collidepoint(evento.pos):
+                        self.iniciar_cronometro()
+                        self.estado = Jogo.CENA1
+
+                    # Clique no relé -> vira colecionável direto (sem cena própria)
+                    elif self.estado == Jogo.CENA1 and not self.rele_encontrado and self.rect_rele.collidepoint(evento.pos):
+                        item_rele = ItemColecionavel(
+                            nome="Relé Eletromecânico do Z3",
+                            descricao="O relé queimado que travava o funcionamento do Z3.",
+                        )
+                        self.inventario.adicionar(item_rele)
+                        self.rele_encontrado = True
+
+                    # Clique no Z3 -> só funciona depois do relé encontrado
+                    elif self.estado == Jogo.CENA1 and self.rele_encontrado and self.rect_z3.collidepoint(evento.pos):
+                        self.jogador.mover_ate(self.ponto_interacao_z3)
+                        self.proximo_estado_ao_chegar = Jogo.CENA2
+
+                    # Clique na seta -> anda até ela e segue para a Cena 3
+                    elif self.estado == Jogo.CENA1 and self.rect_seta_avancar.collidepoint(evento.pos):
+                        self.jogador.mover_ate(self.ponto_interacao_seta)
+                        self.proximo_estado_ao_chegar = Jogo.CENA3
+
+                    # Clique nos nós do circuito, dentro da Cena 2
+                    elif self.estado == Jogo.CENA2:
+                        self.clicar_no_circuito(evento.pos)
+
+                    # Botão "Voltar" da Cena de Dica 1 -> Cena 1
+                    elif self.estado == Jogo.CENA_DICA1 and self.botao_voltar_dica1.collidepoint(evento.pos):
+                        self.estado = Jogo.CENA1
+
+                    # Clique no Colossus -> anda até ele e segue para a Cena 4
+                    elif self.estado == Jogo.CENA3 and self.rect_colossus.collidepoint(evento.pos):
+                        self.jogador.mover_ate(self.ponto_interacao_colossus)
+                        self.proximo_estado_ao_chegar = Jogo.CENA4
+
+                    # Botão "Voltar" da Cena 3 -> Cena 1
+                    elif self.estado == Jogo.CENA3 and self.botao_voltar_cena3.collidepoint(evento.pos):
+                        self.jogador.rect.midright = (self.rect_seta_avancar.left - 20, self.jogador.rect.centery)
+                        self.estado = Jogo.CENA1
+
+                    # Botão "Voltar" da Cena 4 -> Cena 3
+                    elif self.estado == Jogo.CENA4 and self.botao_voltar_cena4.collidepoint(evento.pos):
+                        self.estado = Jogo.CENA3
+
+                    # Fechar a visualização de um item (tem prioridade
+                    # sobre o resto, já que fica por cima de tudo)
+                    elif self.item_em_visualizacao is not None:
+                        if self.botao_fechar_item.collidepoint(evento.pos):
+                            self.item_em_visualizacao = None
+
+                    # Clique num item dentro do painel de inventário -> visualizar
+                    elif self.mostrar_painel_inventario:
+                        clicou_em_algum_item = False
+                        for indice, item in enumerate(self.inventario.itens):
+                            if self.rect_item_no_painel(indice).collidepoint(evento.pos):
+                                if item.nome in self.imagens_dos_itens:
+                                    self.item_em_visualizacao = item.nome
+                                    self.mostrar_painel_inventario = False
+                                clicou_em_algum_item = True
+                                break
+                        if not clicou_em_algum_item and self.botao_inventario.collidepoint(evento.pos):
+                            self.mostrar_painel_inventario = False
+
+                    # Clique no ícone do inventário -> abre o painel
+                    elif self.estado != Jogo.MENU and self.botao_inventario.collidepoint(evento.pos):
+                        self.mostrar_painel_inventario = True
+
+                    elif self.estado == Jogo.VITORIA and self.botao_reiniciar_vitoria.collidepoint(evento.pos):
+                        return "vitoria"
+
+                    elif self.estado == Jogo.DERROTA and self.botao_reiniciar_derrota.collidepoint(evento.pos):
+                        self.reiniciar()
+
+            # --- Cronômetro (vale para todas as cenas jogáveis) ---
+            if self.estado in (Jogo.CENA1, Jogo.CENA2, Jogo.CENA_DICA1, Jogo.CENA3, Jogo.CENA4) and self.ticks_inicio is not None:
+                if self.tempo_restante_segundos() <= 0:
+                    self.estado = Jogo.DERROTA
+
+            # --- Atualização de lógica por estado ---
+            if self.estado == Jogo.CENA1:
+                teclas = pygame.key.get_pressed()
+                self.atualizar_cena1(teclas)
+            elif self.estado == Jogo.CENA3:
+                teclas = pygame.key.get_pressed()
+                self.atualizar_cena3(teclas)
+
+            # --- Desenho por estado ---
+            if self.estado == Jogo.MENU:
+                self.desenhar_menu()
+            elif self.estado == Jogo.CENA1:
+                self.desenhar_cena1()
+            elif self.estado == Jogo.CENA2:
+                self.desenhar_cena2()
+            elif self.estado == Jogo.CENA_DICA1:
+                self.desenhar_cena_dica1()
+            elif self.estado == Jogo.CENA3:
+                self.desenhar_cena3()
+            elif self.estado == Jogo.CENA4:
+                self.desenhar_cena4()
+            elif self.estado == Jogo.VITORIA:
+                self.desenhar_vitoria()
+            elif self.estado == Jogo.DERROTA:
+                self.desenhar_derrota()
+
+            if self.mostrar_painel_inventario:
+                self.desenhar_painel_inventario()
+            if self.item_em_visualizacao is not None:
+                self.desenhar_visualizacao_item()
+
+            pygame.display.flip()
+            self.relogio.tick(FPS)
+
+        pygame.quit()
+        sys.exit()
+
+
+# =====================================================================
+# 8. PONTO DE ENTRADA DO PROGRAMA
+# =====================================================================
+if __name__ == "__main__":
+    jogo = Jogo()
+    jogo.executar()
