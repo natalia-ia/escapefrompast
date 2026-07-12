@@ -375,7 +375,7 @@ class Jogo:
             ASSETS["rele"], (60, 60), DOURADO_VALVULA, "RELÉ",
         )
         self.img_z3 = carregar_imagem(
-            ASSETS["z3"], (200, 160), CINZA, "Z3",
+            ASSETS["z3"], (188, 142), CINZA, "Z3",
         )
         self.img_fundo_cena2 = carregar_imagem(
             ASSETS["fundo_cena2"], (LARGURA, ALTURA), (50, 50, 55),
@@ -416,7 +416,7 @@ class Jogo:
         )
 
         self.img_npc = carregar_imagem(
-            ASSETS["npc"], (138, 288), (110, 90, 130), "KONRAD\nZUSE",
+            ASSETS["npc"], (155, 305), (115, 90, 130), "KONRAD\nZUSE",
         )
 
         self.img_vitoria = carregar_imagem(
@@ -445,14 +445,14 @@ class Jogo:
         self.rele_encontrado = False
 
         # --- Z3 (Cena 1) - só fica clicável depois do relé encontrado ---
-        self.rect_z3 = self.img_z3.get_rect(midright=(LARGURA - 60, ALTURA - 260))
+        self.rect_z3 = self.img_z3.get_rect(midright=(LARGURA - 362, ALTURA - 268))
         self.ponto_interacao_z3 = (
             self.rect_z3.left - 40,
             self.rect_z3.bottom - 20,
         )
 
         # --- NPC (Konrad Zuse), parado na Cena 1 ---
-        self.rect_npc = self.img_npc.get_rect(midleft=(500, ALTURA - 180))
+        self.rect_npc = self.img_npc.get_rect(midleft=(700, ALTURA - 220))
 
         # --- Seta de navegação (Cena 1 -> Cena 3) ---
         self.rect_seta_avancar = pygame.Rect(0, 0, 56, 56)
