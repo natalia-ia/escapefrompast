@@ -3,25 +3,22 @@ Este arquivo implementa o chatbot da Ada Lovelace na Fase 2: um único
 retrato clicável, sobreposto ao canto superior esquerdo do papel/planta na
 parede da oficina, que abre uma caixinha de conversa compacta (estilo RPG,
 igual à do Gerbert na Fase 1) onde o jogador pode digitar perguntas e
-receber respostas geradas pela API do Gemini, no papel da própria Ada. Ela
-conhece a lógica do puzzle de Babbage/Lovelace e pode dar dicas sobre a
-ordem dos cartões, mas evita simplesmente entregar a resposta pronta -- a
-ideia é ajudar sem estragar a graça do puzzle.
+receber respostas geradas pelo modelo qwen2.5:1.5b, rodando localmente via
+Ollama, no papel da própria Ada. Ela conhece a lógica do puzzle de
+Babbage/Lovelace e pode dar dicas sobre a ordem dos cartões, mas evita
+simplesmente entregar a resposta pronta -- a ideia é ajudar sem estragar a
+graça do puzzle.
 
 O mesmo retrato/conversa aparece em DOIS lugares: na cena principal da
 oficina (fase2.py) e na tela do próprio puzzle (babbage_lovelace.py) -- é
 o mesmo objeto AdaChat repassado de um pra outro, então a conversa (e a
 posição do ícone) continua igual nos dois.
 
-Mesma estratégia de thread do Gerbert (Fase 1): a chamada à API roda numa
-thread separada, com timeout, para a janela do jogo nunca travar esperando
-uma resposta (mesmo se a internet cair ou a API demorar).
-
-A chave da API (GEMINI_API_KEY) nunca fica escrita neste arquivo -- ela é
-lida de um arquivo .env (Pygame/Fase_2/.env, fora do controle de versão)
-através da biblioteca python-dotenv. Se a chave não estiver configurada
-ainda, o chat simplesmente mostra uma mensagem de erro amigável, em vez de
-travar o jogo inteiro.
+Mesma estratégia do Gerbert (Fase 1): a chamada ao Ollama roda numa thread
+separada, com timeout, para a janela do jogo nunca travar esperando uma
+resposta (mesmo se o Ollama não estiver rodando ou demorar demais). Não
+precisa de chave de API nem de conexão com a internet -- o modelo roda no
+próprio computador.
 
 Este módulo é independente do resto da Fase 2 (só usa `common` para
 cores/fontes compartilhadas) -- quem o conecta ao jogo é fase2.py e
@@ -34,59 +31,77 @@ caixinha do Gerbert na Fase 1).
 import os
 import threading
 
+import ollama
 import pygame
-from dotenv import load_dotenv
 
 from . import common
 
 # ---------------------------------------------------------------------------
-# Configuração da API do Gemini
+# Configuração do Ollama
 # ---------------------------------------------------------------------------
-# O .env fica na raiz da Fase 2 (Pygame/Fase_2/.env), três pastas acima
-# deste arquivo (puzzles/ -> fase2/ -> Fase_2/) -- calculamos o caminho a
-# partir deste próprio arquivo, em vez de depender de qual pasta o jogo foi
-# executado, para o .env ser encontrado não importa de onde o jogo rode.
-_FASE_2_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_ENV_PATH = os.path.join(_FASE_2_DIR, ".env")
-load_dotenv(_ENV_PATH)
+# qwen2.5:1.5b -- trocado do 0.5b (usado pelo Gerbert na Fase 1) depois de
+# comparar as duas respostas lado a lado: o 0.5b divagava bastante e às
+# vezes respondia sobre qualquer assunto que o jogador perguntasse, mesmo
+# fora do tema da fase. O 1.5b ainda é leve (~1GB) mas segue instruções de
+# escopo/tamanho bem melhor.
+MODELO_ADA = "qwen2.5:1.5b"
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-# "gemini-flash-latest" é um "apelido" que a Google sempre aponta pro
-# modelo flash mais atual -- evita ter que trocar esse nome toda vez que
-# uma versão específica (ex: "gemini-2.5-flash") for descontinuada, o que
-# já aconteceu uma vez durante o desenvolvimento (erro 404 "no longer
-# available to new users").
-MODELO_ADA = "gemini-flash-latest"
+# Tempo limite (em segundos) que o cliente do Ollama espera antes de
+# desistir -- sem isso, se o Ollama não estiver rodando ou demorar demais,
+# a chamada ficaria esperando pra sempre e travaria a caixinha em "Ada está
+# pensando...". Mesmo valor usado pelo Gerbert (testado na prática: uma
+# resposta chegou a levar ~16s).
+TIMEOUT_OLLAMA_SEGUNDOS = 30
 
-# Quanto tempo (em segundos) esperamos a resposta antes de desistir e
-# mostrar erro. IMPORTANTE: isso é aplicado por NÓS (com threading.Event),
-# não só repassado pra biblioteca -- na prática, o timeout que a própria
-# biblioteca aceita (http_options.timeout) nem sempre é respeitado em
-# todas as fases da conexão (medido durante o desenvolvimento: em alguns
-# testes a chamada ficou mais de 40s sem resolver nem dar erro, mesmo com
-# esse valor configurado). Por isso desistimos por conta própria depois de
-# TIMEOUT_GEMINI_SEGUNDOS, não importa o que a biblioteca esteja fazendo
-# por baixo -- ver _perguntar() mais abaixo.
-TIMEOUT_GEMINI_SEGUNDOS = 10
+# temperature baixa (padrão do Ollama é bem mais alto) deixa as respostas
+# mais previsíveis e focadas -- testado na prática: com a temperatura
+# padrão, o modelo 1.5b variava entre respostas curtas e ótimas e
+# respostas de vários parágrafos fugindo do assunto; com 0.4 ficou
+# consistente nas duas coisas, e como bônus respondeu mais rápido (o
+# modelo "titubeia" menos e termina de gerar antes).
+TEMPERATURE_ADA = 0.4
+cliente_ollama = ollama.Client(timeout=TIMEOUT_OLLAMA_SEGUNDOS)
 
 # Instrução de sistema enviada à IA para ela sempre responder no papel da
-# Ada Lovelace. Ela sabe que o puzzle pede pra montar um "programa" com
-# cartões de instrução (iniciar -> operação matemática -> repetir ->
-# imprimir o resultado), mas é orientada a dar dicas em vez de entregar a
-# ordem certa de bandeja -- o jogador ainda precisa pensar um pouco.
+# Ada Lovelace. Reforçada depois de testes mostrarem que o modelo pequeno
+# só respeita bem o escopo (só falar de Babbage/Ada/1800-1840) e o limite
+# de tamanho quando as regras vêm bem explícitas e acompanhadas de
+# exemplos (few-shot) -- só descrever a regra em prosa não bastava.
 PROMPT_SISTEMA_ADA = (
-    "Você é Ada Lovelace, matemática e escritora, ajudando o jogador a "
-    "programar a Máquina Analítica de Charles Babbage. O jogador está "
-    "tentando montar, em ordem, os cartões de instrução de um pequeno "
-    "programa (algo como: iniciar a máquina, fazer o cálculo matemático, "
-    "repetir os passos necessários e por fim imprimir o resultado). Você "
-    "pode dar dicas sobre COMO pensar na lógica de um programa (o que "
-    "precisa vir antes do quê, e por quê), mas nunca liste a ordem exata "
-    "e completa dos cartões, mesmo se o jogador insistir -- prefere "
-    "ensinar o raciocínio a entregar a resposta pronta. Responda sempre "
-    "em português, de forma breve (1-2 frases), com tom animado, gentil "
-    "e didático, adequado a uma fase educativa sobre história da "
-    "computação."
+    "Você é Ada Lovelace, matemática e escritora do século XIX, ajudando "
+    "o jogador a programar a Máquina Analítica de Charles Babbage numa "
+    "fase educativa sobre história da computação (1800-1840).\n\n"
+    "REGRAS IMPORTANTES:\n"
+    "- Responda SOMENTE sobre Charles Babbage, Ada Lovelace, a Máquina "
+    "Analítica, ou o contexto histórico de 1800-1840. Se a pergunta for "
+    "sobre qualquer outro assunto, responda educadamente que você só pode "
+    "falar sobre esses temas.\n"
+    "- Responda em no máximo 3 frases curtas.\n"
+    "- Responda sempre em português, com tom animado, gentil e didático.\n"
+    "- O jogador está tentando montar, em ordem, os cartões de instrução "
+    "de um pequeno programa (iniciar a máquina, fazer o cálculo "
+    "matemático, repetir os passos necessários, imprimir o resultado). "
+    "Você pode dar dicas sobre COMO pensar na lógica (o que precisa vir "
+    "antes do quê, e por quê), mas nunca liste a ordem exata e completa "
+    "dos cartões, mesmo se o jogador insistir.\n\n"
+    "EXEMPLOS:\n"
+    "Pergunta: Qual time de futebol você torce?\n"
+    "Resposta: Ah, isso é de uma época que ainda não vivi! Prefiro "
+    "conversar sobre máquinas de calcular. Tem alguma dúvida sobre a "
+    "Máquina Analítica?\n\n"
+    "Pergunta: Como funciona a máquina de Babbage?\n"
+    "Resposta: Ela é movida a engrenagens e manivela, seguindo instruções "
+    "em cartões perfurados, quase como um programa de computador! Cada "
+    "cartão diz uma ação: iniciar, calcular, repetir ou imprimir.\n\n"
+    "Pergunta: Me dá a ordem certa dos cartões?\n"
+    "Resposta: Isso eu não posso entregar de bandeja! Pense: o que "
+    "precisa acontecer PRIMEIRO pra máquina sequer começar a funcionar?\n\n"
+    "Pergunta: O que eu tenho que fazer primeiro? (ou variações da mesma "
+    "pergunta, como \"como devo começar\", \"o que eu faço agora\", \"por "
+    "onde eu começo\")\n"
+    "Resposta: Toda máquina precisa ser ligada antes de fazer qualquer "
+    "coisa! Procure entre os cartões um que fale em começar ou iniciar a "
+    "máquina -- esse é o primeiro que você quer no seu programa."
 )
 
 # ---------------------------------------------------------------------------
@@ -123,33 +138,33 @@ ICONE_POS = (210 + 8 + TAMANHO_ICONE // 2, 130 + 8 + TAMANHO_ICONE // 2)
 # abaixo foram calibradas visualmente (protótipo renderizado e comparado
 # com o personagem/cenário) antes de aplicar de vez.
 #
-# BAR_ALTURA = 290px é ~44,6% da altura da tela (650px) -- dentro da faixa
-# de 35-45% pedida. BAR_LARGURA quase a largura toda (1000 - 2*20 margem).
-BAR_LARGURA, BAR_ALTURA = 960, 290
+# BAR_ALTURA = 240px é ~37% da altura da tela (650px) -- reduzida em
+# relação à versão original (290px, ~45%), que ocupava espaço
+# desproporcional ao resto da interface. BAR_LARGURA também reduzida.
+BAR_LARGURA, BAR_ALTURA = 760, 240
 BAR_MARGEM_LATERAL = 20
 BAR_MARGEM_INFERIOR = 16
 
 # Espaço entre a caixa de texto e o painel do retrato, e o tamanho do
-# painel -- PAINEL_ALTURA (245) é ~1,11x a altura do personagem jogável
-# (Jogador/AVATAR_FIT = 220px), ou seja "um pouco maior", como pedido.
-GAP_PAINEL = 14
-PAINEL_LARGURA, PAINEL_ALTURA = 230, 245
-RETRATO_GRANDE_DIAMETRO = 132  # bem maior que o ícone (54px) -- um "close" reconhecível
+# painel -- escalados junto com BAR_LARGURA/BAR_ALTURA pra manter a mesma
+# proporção que tinham antes.
+GAP_PAINEL = 12
+PAINEL_LARGURA, PAINEL_ALTURA = 180, 200
+RETRATO_GRANDE_DIAMETRO = 125  # bem maior que o ícone (54px) -- um "close" reconhecível, mas compacto
 
 # Borda do 9-slice da moldura grande (common.LARGE_FRAME) quando usada
 # neste tamanho compacto -- bem menor que LARGE_FRAME_BORDER (200,
-# calibrado pra telas de puzzle em tela cheia). Com 200 aqui, os cantos
-# ornamentados tomariam a caixa inteira; com 36, sobra uma área plana
-# generosa no meio pro texto.
-TEXTO_BORDA = 36
+# calibrado pra telas de puzzle em tela cheia). Escalada junto com o
+# tamanho geral da caixa.
+TEXTO_BORDA = 28
 
 # Recuo do conteúdo (texto/campo) em relação à borda da moldura -- bem
 # maior que a borda em si, porque o ornamento dos cantos "sangra" visualmente
 # pra dentro da área plana (testado no protótipo: com um recuo igual à
 # borda, as primeiras letras do texto ficavam escondidas atrás do desenho
 # do canto).
-CONTEUDO_RECUO_X = 74
-CONTEUDO_RECUO_Y_TOPO = 42
+CONTEUDO_RECUO_X = 70
+CONTEUDO_RECUO_Y_TOPO = 32
 
 # Cor do texto sobre a área plana da moldura grande (um tom de pergaminho
 # claro) -- precisa ser um marrom escuro pra ler bem, diferente do CREAM
@@ -203,9 +218,9 @@ class AdaChat:
     Guarda: se a caixinha está aberta, o que o jogador está digitando, a
     última resposta recebida e se está esperando a IA responder. Quem usa
     esta classe (fase2.py) só precisa chamar `tratar_clique_no_icone`,
-    `tratar_evento_teclado` e `desenhar` nos momentos certos do loop
-    principal -- toda a lógica de abrir/fechar/perguntar fica encapsulada
-    aqui dentro.
+    `tratar_evento_teclado`, `tratar_evento_scroll` e `desenhar` nos
+    momentos certos do loop principal -- toda a lógica de abrir/fechar/
+    perguntar/rolar fica encapsulada aqui dentro.
     """
 
     def __init__(self):
@@ -223,6 +238,7 @@ class AdaChat:
         self.texto_digitado = ""
         self.resposta = ""
         self.pensando = False
+        self.rolagem = 0  # quantas linhas da resposta já rolamos pra baixo (0 = começo)
 
     def tratar_clique_no_icone(self, pos_virtual):
         """Se `pos_virtual` (já convertido pra coordenadas da tela virtual
@@ -234,14 +250,16 @@ class AdaChat:
             self.aberta = True
             self.texto_digitado = ""
             self.resposta = ""
+            self.rolagem = 0
             return True
         return False
 
     def tratar_evento_teclado(self, evento):
         """Processa um evento KEYDOWN enquanto a caixinha está aberta: ESC
         fecha a conversa, Enter envia a pergunta (numa thread separada,
-        sem travar o jogo), Backspace apaga e o resto digita normalmente.
-        Só deve ser chamada quando `self.aberta` for True."""
+        sem travar o jogo), setas pra cima/baixo rolam o texto da resposta,
+        Backspace apaga e o resto digita normalmente. Só deve ser chamada
+        quando `self.aberta` for True."""
         if evento.key == pygame.K_ESCAPE:
             self.aberta = False
         elif evento.key == pygame.K_RETURN:
@@ -250,7 +268,16 @@ class AdaChat:
                 self.texto_digitado = ""
                 self.pensando = True
                 self.resposta = ""
+                self.rolagem = 0
                 threading.Thread(target=self._perguntar, args=(pergunta,), daemon=True).start()
+        elif evento.key == pygame.K_UP:
+            self.rolagem = max(0, self.rolagem - 1)
+        elif evento.key == pygame.K_DOWN:
+            # o limite de quanto dá pra rolar pra baixo depende de quantas
+            # linhas a resposta tem, o que só é calculado em desenhar() (lá
+            # é onde sabemos a largura/altura disponíveis pra quebrar o
+            # texto) -- por isso o clamp de verdade acontece lá, não aqui.
+            self.rolagem += 1
         elif evento.key == pygame.K_BACKSPACE:
             if not self.pensando:
                 self.texto_digitado = self.texto_digitado[:-1]
@@ -259,63 +286,38 @@ class AdaChat:
             if common.FONT_SMALL.size(self.texto_digitado + evento.unicode)[0] <= LARGURA_CONTEUDO:
                 self.texto_digitado += evento.unicode
 
+    def tratar_evento_scroll(self, evento):
+        """Processa a roda do mouse (evento MOUSEWHEEL) enquanto a
+        caixinha está aberta -- `evento.y` positivo é rodar pra cima
+        (volta pro início da resposta), negativo é rodar pra baixo (mesma
+        direção da seta ↓). Só deve ser chamada quando `self.aberta` for
+        True."""
+        self.rolagem = max(0, self.rolagem - evento.y)
+
     def _perguntar(self, pergunta):
         """Roda em uma thread separada (chamada por tratar_evento_teclado
-        ao apertar Enter): chama a API do Gemini pedindo uma resposta como
-        se fosse a Ada, e guarda o resultado em `self.resposta`.
-
-        A chamada de verdade acontece numa SEGUNDA thread interna
-        (`chamar_api`, logo abaixo), e esta função espera por ela no
-        máximo TIMEOUT_GEMINI_SEGUNDOS usando `concluido.wait(timeout=...)`
-        -- se a resposta não chegar a tempo, desistimos e mostramos erro,
-        MESMO QUE a chamada continue presa por baixo. Isso é necessário
-        porque o timeout embutido na biblioteca (http_options.timeout) não
-        se mostrou confiável em todos os casos durante os testes (a
-        chamada às vezes ficou presa por mais de 40s sem dar erro nem
-        sucesso, mesmo configurado pra desistir em 30s) -- então em vez de
-        confiar só nisso, garantimos o limite de tempo por conta própria.
+        ao apertar Enter): chama o modelo qwen2.5:1.5b (rodando localmente
+        via Ollama) pedindo uma resposta como se fosse a Ada, e guarda o
+        resultado em `self.resposta`. Mesma abordagem do Gerbert (Fase 1):
+        o timeout já embutido em `cliente_ollama` (ver TIMEOUT_OLLAMA_SEGUNDOS
+        lá em cima) é suficiente aqui, sem precisar de uma segunda thread
+        interna com `threading.Event` como na versão antiga com Gemini.
         """
-        resultado_caixa = {}
-        concluido = threading.Event()
-
-        def chamar_api():
-            try:
-                from google import genai
-                from google.genai import types
-
-                cliente = genai.Client(api_key=GEMINI_API_KEY)
-                resultado = cliente.models.generate_content(
-                    model=MODELO_ADA,
-                    contents=pergunta,
-                    config=types.GenerateContentConfig(system_instruction=PROMPT_SISTEMA_ADA),
-                )
-                resultado_caixa["texto"] = (resultado.text or "").strip()
-            except Exception as erro:
-                resultado_caixa["erro"] = erro
-            finally:
-                # Sinaliza que terminou (com sucesso ou erro) -- é isso que
-                # acorda o `concluido.wait()` logo abaixo, se ele ainda
-                # estiver esperando.
-                concluido.set()
-
-        threading.Thread(target=chamar_api, daemon=True).start()
-
-        # Espera no máximo TIMEOUT_GEMINI_SEGUNDOS por essa segunda
-        # thread. Se ela demorar mais que isso, `terminou_a_tempo` vem
-        # False e seguimos em frente -- a thread `chamar_api` continua
-        # rodando sozinha em segundo plano (é daemon, então não impede o
-        # jogo de fechar), mas a gente já desistiu de esperar por ela.
-        terminou_a_tempo = concluido.wait(timeout=TIMEOUT_GEMINI_SEGUNDOS)
-
-        if not terminou_a_tempo:
-            self.resposta = "Ada não respondeu a tempo, tente novamente."
-        elif "erro" in resultado_caixa:
-            # Cobre chave ausente/inválida, sem internet ou qualquer outro
-            # erro de conexão -- mesma filosofia do Gerbert na Fase 1:
-            # nunca deixar o jogador travado esperando.
+        try:
+            resultado = cliente_ollama.chat(
+                model=MODELO_ADA,
+                messages=[
+                    {"role": "system", "content": PROMPT_SISTEMA_ADA},
+                    {"role": "user", "content": pergunta},
+                ],
+                options={"temperature": TEMPERATURE_ADA},
+            )
+            self.resposta = resultado["message"]["content"].strip()
+        except Exception:
+            # Cobre timeout, Ollama fora do ar ou qualquer outro erro --
+            # mesma filosofia do Gerbert: nunca deixar o jogador travado
+            # esperando.
             self.resposta = "Ada não conseguiu responder, tente novamente."
-        else:
-            self.resposta = resultado_caixa.get("texto", "")
         self.pensando = False
 
     def desenhar(self, tela, mouse_pos):
@@ -374,25 +376,70 @@ class AdaChat:
         conteudo_x = texto_rect.left + TEXTO_BORDA + CONTEUDO_RECUO_X
         conteudo_y = texto_rect.top + TEXTO_BORDA + CONTEUDO_RECUO_Y_TOPO
 
+        # Campo de digitação e dica calculados ANTES do texto porque a
+        # altura da área de resposta disponível (area_texto_altura, logo
+        # abaixo) depende de onde eles começam -- sem isso, uma resposta
+        # comprida desenharia linhas por cima do resto da caixinha (era
+        # exatamente o bug relatado).
+        #
+        # O campo fica coladinho na borda de baixo (só ela é opaca o
+        # bastante pra não sofrer com o desenho do ornamento da moldura
+        # "vazando" por baixo dele); a dica fica ACIMA do campo, não abaixo
+        # -- testado na prática: perto demais da borda, o texto escuro da
+        # dica ficava ilegível em cima do ornamento escuro da moldura.
+        campo_h = 26
+        campo_y = texto_rect.bottom - TEXTO_BORDA - campo_h - 10
+        campo_rect = pygame.Rect(conteudo_x, campo_y, LARGURA_CONTEUDO, campo_h)
+        altura_dica = common.FONT_SMALL.get_height()
+        dica_y = campo_rect.top - altura_dica - 6
+
         if self.pensando:
             fala = "Ada está pensando..."
         else:
             fala = self.resposta or "O que você gostaria de me perguntar?"
 
+        altura_linha = common.FONT_SMALL.get_height() + 4
+        linhas = _quebrar_texto(fala, common.FONT_SMALL, LARGURA_CONTEUDO)
+
+        # Quantas linhas cabem na área visível (do topo do conteúdo até
+        # pouco antes da dica) -- usado tanto pra travar a rolagem quanto
+        # pra saber quais linhas desenhar.
+        area_texto_altura = dica_y - 6 - conteudo_y
+        linhas_visiveis = max(1, area_texto_altura // altura_linha)
+
+        # Trava self.rolagem dentro do intervalo válido: nunca menos que
+        # 0 (início) nem mais do que o necessário pra mostrar a última
+        # linha (senão dava pra rolar infinitamente pra baixo depois do
+        # fim do texto). Feito aqui (não em tratar_evento_teclado/scroll)
+        # porque só aqui sabemos quantas linhas a resposta atual ocupa.
+        rolagem_maxima = max(0, len(linhas) - linhas_visiveis)
+        self.rolagem = max(0, min(self.rolagem, rolagem_maxima))
+
+        # Recorte (clip) da área de texto: garante que nenhuma linha
+        # apareça fora da área reservada pra ela (por cima do campo de
+        # digitação, por exemplo) mesmo que a conta acima erre por
+        # arredondamento -- defesa extra além da paginação em si.
+        area_visivel = pygame.Rect(conteudo_x, conteudo_y, LARGURA_CONTEUDO, area_texto_altura)
+        recorte_anterior = tela.get_clip()
+        tela.set_clip(area_visivel)
         y = conteudo_y
-        for linha in _quebrar_texto(fala, common.FONT_SMALL, LARGURA_CONTEUDO):
+        for linha in linhas[self.rolagem:self.rolagem + linhas_visiveis]:
             linha_surf = common.FONT_SMALL.render(linha, True, COR_TEXTO_PERGAMINHO)
             tela.blit(linha_surf, (conteudo_x, y))
-            y += common.FONT_SMALL.get_height() + 4
+            y += altura_linha
+        tela.set_clip(recorte_anterior)
 
-        # --- campo de digitação + dica, no rodapé da caixa de texto ---
-        campo_h = 26
-        campo_y = texto_rect.bottom - TEXTO_BORDA - campo_h - 26
-        campo_rect = pygame.Rect(conteudo_x, campo_y, LARGURA_CONTEUDO, campo_h)
+        # --- dica (acima do campo) + campo de digitação (rodapé) ---
+        dica = "Enter pergunta, Esc fecha"
+        if rolagem_maxima > 0:
+            # Só menciona a rolagem quando ela realmente faz alguma
+            # diferença (texto maior do que a área visível) -- senão a
+            # dica ficaria enganosa numa resposta curta.
+            dica += " | ↑↓ rola texto"
+        dica_surf = common.FONT_SMALL.render(dica, True, COR_TEXTO_PERGAMINHO)
+        tela.blit(dica_surf, (conteudo_x, dica_y))
+
         pygame.draw.rect(tela, (250, 245, 230), campo_rect, border_radius=4)
         pygame.draw.rect(tela, COR_TEXTO_PERGAMINHO, campo_rect, width=2, border_radius=4)
         texto_surf = common.FONT_SMALL.render(self.texto_digitado, True, (20, 20, 20))
         tela.blit(texto_surf, (campo_rect.x + 5, campo_rect.y + 5))
-
-        dica_surf = common.FONT_SMALL.render("Enter pergunta, Esc fecha", True, COR_TEXTO_PERGAMINHO)
-        tela.blit(dica_surf, (conteudo_x, campo_rect.bottom + 4))
