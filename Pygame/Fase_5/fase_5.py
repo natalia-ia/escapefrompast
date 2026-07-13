@@ -7,6 +7,7 @@ import os
 import sys
 import pygame
 from inventario import Inventario, ItemColecionavel
+from npc_chatbot import NPCChatbot
 
 # =====================================================================
 # 1. CONFIGURAÇÕES GERAIS DA JANELA E DO JOGO
@@ -390,7 +391,7 @@ class Jogo:
             "FUNDO DA CENA 3\n(ala do Colossus)",
         )
         self.img_colossus = carregar_imagem(
-            ASSETS["colossus"], (220, 160), (60, 70, 60), "COLOSSUS",
+            ASSETS["colossus"], (340, 570), (60, 70, 60), "COLOSSUS",
         )
         self.img_fundo_cena4 = carregar_imagem(
             ASSETS["fundo_cena4"], (LARGURA, ALTURA), (40, 40, 45),
@@ -412,7 +413,7 @@ class Jogo:
         self.jogador = Jogador(
             frame_parado=self.img_avatar_parado,
             frames_andando=[self.img_avatar_andando1, self.img_avatar_andando2],
-            posicao_inicial=(80, ALTURA - 300),
+            posicao_inicial=(80, ALTURA - 320),
         )
 
         self.img_npc = carregar_imagem(
@@ -453,6 +454,21 @@ class Jogo:
 
         # --- NPC (Konrad Zuse), parado na Cena 1 ---
         self.rect_npc = self.img_npc.get_rect(midleft=(700, ALTURA - 220))
+        
+        # --- Chatbot do NPC (Konrad Zuse) integrado à IA local (Ollama) ---
+        self.npc_chat = NPCChatbot(
+            rect_npc=self.rect_npc,
+            nome_npc="Konrad Zuse",
+            contexto_fase=(
+                "Você é Konrad Zuse, entre 1941 e 1943, dentro de um jogo de escape "
+                "room educativo. Responda SOMENTE perguntas relacionadas à Fase 5: "
+                "o computador Z3, o relé eletromecânico queimado, o desafio de "
+                "reconectar os circuitos, e o computador Colossus. Se o jogador "
+                "perguntar algo fora desse tema, responda educadamente que só pode "
+                "falar sobre esta fase. Responda sempre em português, em no máximo "
+                "3 frases curtas, sem revelar diretamente a solução dos desafios."
+            ),
+        )
 
         # --- Seta de navegação (Cena 1 -> Cena 3) ---
         self.rect_seta_avancar = pygame.Rect(0, 0, 56, 56)
@@ -493,7 +509,7 @@ class Jogo:
             self.rect_z3.left - 40,   # reaproveita a mesma posição x/y de referência
             self.rect_z3.bottom - 20,
         )
-        self.rect_colossus = self.img_colossus.get_rect(midright=(LARGURA - 33, ALTURA - 262))
+        self.rect_colossus = self.img_colossus.get_rect(midright=(LARGURA - 260, ALTURA - 220))
         self.ponto_interacao_colossus = (
             self.rect_colossus.left - 20,
             self.rect_colossus.bottom - 5,
@@ -611,6 +627,11 @@ class Jogo:
         self.desenhar_seta_avancar(self.rect_seta_avancar)
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        
+        # --- Chatbot do NPC: sempre por último, para ficar por cima de tudo ---
+        if self.npc_chat.perto_do_jogador(self.jogador.rect) and not self.npc_chat.dialogo_aberto:
+            self.npc_chat.desenhar_dica_interacao(self.tela, self.fonte_pequena)
+        self.npc_chat.desenhar(self.tela, self.fonte_texto, self.fonte_pequena, LARGURA, ALTURA)
 
     def desenhar_seta_avancar(self, rect):
         """Desenha a seta de navegação (usa a imagem em
@@ -627,6 +648,8 @@ class Jogo:
         pygame.draw.polygon(self.tela, AMARELO_SEPIA, [ponta, base_superior, base_inferior])
 
     def atualizar_cena1(self, teclas):
+        if self.npc_chat.dialogo_aberto:
+            return  
         chegou = self.jogador.mover(teclas, self.limites_sala)
         if chegou and self.proximo_estado_ao_chegar is not None:
             self.mensagem_erro = ""
@@ -890,6 +913,7 @@ class Jogo:
     # -----------------------------------------------------------------
     def reiniciar(self):
         self.jogador.rect.topleft = (80, ALTURA - 300)
+        self.npc_chat.fechar_dialogo()
         self.caixa_resposta_cena4.texto = ""
         self.mensagem_erro = ""
         self.mensagem_erro_cena4 = ""
@@ -909,18 +933,25 @@ class Jogo:
             for evento in pygame.event.get():
                 if evento.type == pygame.QUIT:
                     rodando = False
-
+                
                 elif evento.type == pygame.KEYDOWN:
-                    if self.estado == Jogo.CENA2 and evento.key == pygame.K_ESCAPE:
-                        self.estado = Jogo.CENA1
+                    if self.estado == Jogo.CENA1:
+                        if self.npc_chat.dialogo_aberto:
+                            self.npc_chat.tratar_evento(evento)          # <-- ADICIONE este bloco todo
+                        elif evento.key == pygame.K_e and self.npc_chat.perto_do_jogador(self.jogador.rect):
+                            self.npc_chat.abrir_dialogo()
 
-                    elif self.estado == Jogo.CENA4:
-                        if evento.key == pygame.K_ESCAPE:
-                            self.estado = Jogo.CENA3
-                        else:
-                            enter_pressionado = self.caixa_resposta_cena4.tratar_evento(evento)
-                            if enter_pressionado:
-                                self.validar_calculo_colossus()
+                    elif evento.type == pygame.KEYDOWN:
+                        if self.estado == Jogo.CENA2 and evento.key == pygame.K_ESCAPE:
+                            self.estado = Jogo.CENA1
+
+                        elif self.estado == Jogo.CENA4:
+                            if evento.key == pygame.K_ESCAPE:
+                                self.estado = Jogo.CENA3
+                            else:
+                                enter_pressionado = self.caixa_resposta_cena4.tratar_evento(evento)
+                                if enter_pressionado:
+                                    self.validar_calculo_colossus()
 
                     elif self.estado in (Jogo.VITORIA, Jogo.DERROTA) and evento.key == pygame.K_r:
                         self.reiniciar()
