@@ -75,8 +75,36 @@ from estilo_crt import (
     render_texto_glow,
     desenhar_scanlines,
 )
+import audio_fase9
 
 FPS = 60
+
+# ---------------------------------------------------------------------------
+# Efeitos sonoros do puzzle -- carregados uma única vez, na primeira vez
+# que run() é chamado (nomes/volumes ficam em audio_fase9.py, num lugar
+# só). Ver _carregar_sons_do_puzzle()/run().
+# ---------------------------------------------------------------------------
+_sons_carregados = False
+_som_clique = None
+_som_sucesso = None
+_som_erro = None
+_som_computador_ligando = None
+
+
+def _carregar_sons_do_puzzle():
+    """Carrega os 4 efeitos sonoros do puzzle uma única vez -- precisa
+    ser chamado depois que pygame.init() já rodou (por isso não
+    acontece no import do módulo, e sim no início de run(), mesmo
+    motivo de fase9._load_assets() só carregar imagens depois que a
+    janela existe)."""
+    global _sons_carregados, _som_clique, _som_sucesso, _som_erro, _som_computador_ligando
+    if _sons_carregados:
+        return
+    _sons_carregados = True
+    _som_clique = audio_fase9.carregar_som(audio_fase9.SOM_CLIQUE)
+    _som_sucesso = audio_fase9.carregar_som(audio_fase9.SOM_SUCESSO)
+    _som_erro = audio_fase9.carregar_som(audio_fase9.SOM_ERRO)
+    _som_computador_ligando = audio_fase9.carregar_som(audio_fase9.SOM_COMPUTADOR_LIGANDO)
 
 
 # =====================================================================
@@ -674,6 +702,8 @@ def run(tela, relogio, npc_chat, estado, largura, altura):
     criado uma vez em fase9.py), que é o que permite fechar essa tela
     sem terminar e retomar a mesma etapa depois.
     """
+    _carregar_sons_do_puzzle()
+
     fonte_titulo = pygame.font.SysFont("consolas", 24, bold=True)
     fonte_etapa = pygame.font.SysFont("consolas", 15, bold=True)
     fonte_pista = pygame.font.SysFont("consolas", 17)
@@ -824,7 +854,7 @@ def run(tela, relogio, npc_chat, estado, largura, altura):
                     # ENTER só faz sentido nas etapas de comando (montar
                     # ação+alvo); na etapa WIMP cada clique já ativa o
                     # elemento na hora, não tem "comando" pra confirmar.
-                    estado.tentar_executar()
+                    audio_fase9.tocar_som(_som_sucesso if estado.tentar_executar() else _som_erro)
                 elif evento.key == pygame.K_ESCAPE and not estado.concluido:
                     rodando = False
 
@@ -859,16 +889,18 @@ def run(tela, relogio, npc_chat, estado, largura, altura):
                         if botao.clicado(evento):
                             estado.acao_selecionada = texto_acao
                             clicou_em_botao = True
+                            audio_fase9.tocar_som(_som_clique)
                             break
                     if not clicou_em_botao:
                         for texto_alvo, botao in zip(estado.alvos_disponiveis, botoes_alvo):
                             if botao.clicado(evento):
                                 estado.alvo_selecionada = texto_alvo
                                 clicou_em_botao = True
+                                audio_fase9.tocar_som(_som_clique)
                                 break
 
                     if not clicou_em_botao and botao_executar_rect.collidepoint(evento.pos):
-                        estado.tentar_executar()
+                        audio_fase9.tocar_som(_som_sucesso if estado.tentar_executar() else _som_erro)
 
         # --- desenho ---
         tela.fill(COR_FUNDO_CRT)
@@ -1035,6 +1067,7 @@ def run(tela, relogio, npc_chat, estado, largura, altura):
         # da 3ª etapa, senão o jogador nunca chegaria a ver o texto
         # "Desktop gráfico ativado!" antes da tela mudar).
         if estado.concluido and not concluido_agora:
+            audio_fase9.tocar_som(_som_computador_ligando)
             _animar_tela_acendendo(tela, relogio, largura, altura)
             concluido_agora = True
             rodando = False

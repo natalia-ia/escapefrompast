@@ -44,6 +44,7 @@ import random
 import pygame
 
 from . import common
+from .. import audio_fase2
 
 # Pasta assets/ da Fase 2 (mesma ideia do ASSETS_DIR em common.py).
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
@@ -233,6 +234,14 @@ def run(screen, clock, ada_chat, estado):
     common.init_fonts()
     _load_assets()
 
+    # --- Áudio: os 3 efeitos deste puzzle (a música de fundo já está
+    # tocando desde fase2.py -- ver audio_fase2.iniciar_musica_fundo).
+    # Nomes de arquivo/volumes organizados em audio_fase2.py. Nunca trava
+    # o jogo se algum som não carregar (ver audio_fase2.carregar_som).
+    som_consertando = audio_fase2.carregar_som(audio_fase2.SOM_CONSERTANDO_MAQUINA)
+    som_erro = audio_fase2.carregar_som(audio_fase2.SOM_ERRO)
+    som_maquina_ligando = audio_fase2.carregar_som(audio_fase2.SOM_MAQUINA_LIGANDO)
+
     # `estado.shuffled` é a ordem em que os cartões aparecem embaralhados
     # na "pool" (fileira de baixo); `estado.placed` guarda, na ordem em que
     # o jogador for clicando, quais cartões (pelo índice em CARDS) já foram
@@ -358,6 +367,15 @@ def run(screen, clock, ada_chat, estado):
                             continue
                         if pool_rects[i].collidepoint(mouse_pos):
                             estado.placed.append(card_i)
+                            # Acertou se o cartão caiu no slot certo pra
+                            # ele (a posição que acabou de ocupar, len-1,
+                            # bate com o índice dele em CARDS) -- só um
+                            # feedback sonoro, não muda o comportamento
+                            # de aceitar o cartão em qualquer slot livre.
+                            if card_i == len(estado.placed) - 1:
+                                audio_fase2.tocar_efeito_clique(som_consertando)
+                            else:
+                                audio_fase2.tocar_efeito_clique(som_erro)
                             clicked_pool = True
                             break
 
@@ -376,6 +394,7 @@ def run(screen, clock, ada_chat, estado):
         # seja, o jogador acertou a sequência certa do "programa" de Ada.
         if not solved and not derrotado and estado.placed == list(range(len(CARDS))):
             solved = True
+            audio_fase2.tocar_vitoria(som_maquina_ligando)
             print("Puzzle resolvido: máquina de Babbage programada com sucesso!")
 
         # Cronômetro: só conta enquanto ainda está jogando (nem resolvido
@@ -494,4 +513,9 @@ def run(screen, clock, ada_chat, estado):
     # completed só vira True lá em cima, quando o cronômetro pós-solução
     # (solve_timer) termina -- se o jogador saiu antes com ESC/FECHAR,
     # continua False.
+
+    # Para o som de vitória (se ainda estiver tocando) antes de devolver
+    # o controle pra fase2.py -- ele não pode continuar tocando durante
+    # o fade/sala da máquina do tempo que vem a seguir.
+    audio_fase2.parar_vitoria()
     return completed

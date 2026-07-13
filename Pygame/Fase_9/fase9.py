@@ -56,6 +56,7 @@ import pygame
 from npc_chatbot import NPCChatbot
 import puzzle_terminal
 from estilo_crt import COR_FUNDO_CRT, COR_AMBAR, COR_AMBAR_BRILHO, render_texto_glow, desenhar_scanlines
+import audio_fase9
 
 # PROPOSITALMENTE sem nenhuma chamada de "DPI awareness" aqui: testado ao
 # vivo (clique físico simulado via API do Windows) e confirmado que, sem
@@ -591,6 +592,11 @@ class Jogo:
         self.tela = pygame.display.set_mode((LARGURA, ALTURA))
         pygame.display.set_caption("Fase 9 - A Revolução dos Computadores Pessoais")
         self.relogio = pygame.time.Clock()
+
+        # --- Música de fundo (em loop) -- toca durante a fase inteira;
+        # não faz nada se o arquivo não existir ou não houver placa de
+        # som (ver audio_fase9.iniciar_musica_fundo).
+        audio_fase9.iniciar_musica_fundo()
 
         # --- Fontes ---
         self.fonte_terminal = carregar_fonte(ASSETS["fonte_terminal"], 24)

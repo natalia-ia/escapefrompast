@@ -32,7 +32,8 @@ import os
 
 import pygame
 
-from .puzzles import ada_chatbot, babbage_lovelace 
+from .puzzles import ada_chatbot, babbage_lovelace
+from . import audio_fase2
 
 # Pasta assets/ desta fase (onde ficam as imagens: cenários, objetos,
 # personagem etc.) -- calculada a partir do caminho deste próprio arquivo,
@@ -772,6 +773,15 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
     width, height = screen.get_size()
     margin = 20
 
+    # --- Áudio: música de fundo em loop durante a fase inteira, e os 2
+    # efeitos que disparam aqui na oficina (os outros 3, do puzzle de
+    # Babbage/Lovelace, ficam em puzzles/babbage_lovelace.py) -- nomes de
+    # arquivo/volumes organizados em audio_fase2.py. Nunca trava o jogo
+    # se algum som não carregar (ver audio_fase2.carregar_som).
+    audio_fase2.iniciar_musica_fundo()
+    som_caixa = audio_fase2.carregar_som(audio_fase2.SOM_CAIXA)
+    som_coletar_engrenagem = audio_fase2.carregar_som(audio_fase2.SOM_COLETAR_ENGRENAGEM)
+
     # Uma fonte pra cada "papel" de texto na tela (título, legendas, dicas, nome do personagem, contador) -- criadas uma vez aqui no
     # início, não a cada frame, porque criar fonte é caro e lento, então é melhor criar uma vez só e reaproveitar.
 
@@ -786,6 +796,9 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
     # jogador apertar ESC na intro, _run_intro devolve False e a gente saida da fase imediatamente, sem nem começar a cena jogável.
 
     if not _run_intro(screen, clock, character_image, width, height, title_font, subtitle_font, hint_font):
+        # Saiu na intro (ESC) -- para a música de fundo que já tinha
+        # começado a tocar acima, pra não vazar pro menu.
+        audio_fase2.parar_tudo()
         return False
 
     # é estado do progresso (quais objetos já foram abertos/coletados)
@@ -924,12 +937,14 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
                         if not is_open:
                             if rect.collidepoint(click_pos):
                                 container_open[key] = True
+                                audio_fase2.tocar_efeito_clique(som_caixa)
                                 clicked_something = True
                                 break
                         elif not collected[key]:
                             gx, gy = c["pos"]
                             if math.hypot(click_pos[0] - gx, click_pos[1] - gy) <= GEAR_HOVER_RADIUS:
                                 collected[key] = True
+                                audio_fase2.tocar_efeito_clique(som_coletar_engrenagem)
                                 clicked_something = True
                                 break
 
@@ -942,6 +957,7 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
                         and PAPER_GEAR_RECT.collidepoint(click_pos)
                     ):
                         collected[PAPER_GEAR_KEY] = True
+                        audio_fase2.tocar_efeito_clique(som_coletar_engrenagem)
                         paper_gear_flash_timer = PAPER_GEAR_FLASH_SECONDS
                         clicked_something = True
 
@@ -1126,5 +1142,9 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
         pygame.display.flip()
 
     # completed só vira True lá em cima, quando o jogador clica na máquina do tempo depois de chegar perto dela e se saiu antes com ESC continua False.
-    
+
+    # Sai da fase por qualquer caminho (vitória ou ESC) -- para a
+    # música de fundo e qualquer efeito ainda tocando, pra nada da
+    # Fase 2 vazar pra próxima cena/menu.
+    audio_fase2.parar_tudo()
     return completed
