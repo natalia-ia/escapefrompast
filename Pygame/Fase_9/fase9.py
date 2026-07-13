@@ -12,28 +12,27 @@ terminal preta (estilo microcomputador dos anos 70) e precisa
 reconstruir o primeiro desktop gráfico; quando acerta, a tela "acende"
 numa área de trabalho colorida e a fase termina.
 
-ESTRUTURA DO JOGO (máquina de estados) -- SÓ O ESQUELETO POR ENQUANTO
+ESTRUTURA DO JOGO (máquina de estados)
 ----------------------------------------------------------------------
 QUARTO    -> cena principal: o quarto retrô (assets/imagens/cenario_
              fase_9.png) onde o jogador anda com WASD/setas e pode
              clicar no computador em cima da escrivaninha para
              começar o puzzle. O jogador começa aqui.
-TERMINAL  -> tela de terminal preto, com um cursor piscando
-             (placeholder). Disparada (por enquanto só um print,
-             # TODO) ao clicar no computador, dentro de QUARTO.
-             # TODO: aqui entra o puzzle de "montar" o desktop --
-             a mecânica em si (arrastar ícones? digitar comandos?
-             organizar janelas?) ainda não foi definida.
+TERMINAL  -> o puzzle de verdade (3 etapas encadeadas: ação + alvo,
+             uma etapa alimenta a pista da próxima) -- implementado em
+             puzzle_terminal.py, chamado direto no clique do
+             computador (mesmo padrão de fase2.py chamando
+             babbage_lovelace.run()). Ao concluir, a própria função já
+             faz a tela "acender" (efeito simples de transição).
 DESKTOP   -> tela "acesa", área de trabalho colorida -- fim da fase.
-             # TODO: transição visual entre TERMINAL e DESKTOP (um
-             fade, por exemplo, parecido com fase2._fade_transition
-             em Pygame/Fase_2/fase2/fase2.py) entra aqui, disparada no
-             momento em que o puzzle for resolvido.
+             # TODO: depois de resolvido, levar o jogador pra sala da
+             máquina do tempo (como a Fase 2 faz -- ver
+             fase2._fade_transition em Pygame/Fase_2/fase2/fase2.py);
+             por enquanto só troca pro placeholder de DESKTOP.
 
-Este arquivo é só o ESQUELETO: abre a janela na mesma resolução das
-outras fases, mostra a tela de terminal com o cursor piscando, e
-marca com "# TODO" onde a lógica do puzzle e a transição pro desktop
-vão entrar. SEM INVENTÁRIO -- esta fase não tem coleta de objetos no
+Este arquivo monta a cena/estados da fase; a lógica do puzzle em si
+mora em puzzle_terminal.py (dados do puzzle separados da lógica, ver
+ETAPAS lá). SEM INVENTÁRIO -- esta fase não tem coleta de objetos no
 cenário (diferente da Fase_4, que tem).
 
 Requisitos: pip install pygame
@@ -42,48 +41,23 @@ Execução:   python fase9.py
 """
 
 import os
-import sys
 
 import pygame
 
 from npc_chatbot import NPCChatbot
+import puzzle_terminal
 
-# No Windows, se o processo não avisar que é "DPI aware", o próprio
-# Windows escala a janela sozinho (em telas com escala >100%, o padrão da
-# maioria dos notebooks/monitores) -- o jogo continua desenhando em
-# 960x600, mas os cliques do mouse chegam com coordenadas na escala
-# "virtual" do Windows, que não bate mais 1-pra-1 com os retângulos
-# calculados aqui (ex: COMPUTADOR_RECT), gerando cliques que "erram" um
-# alvo que visualmente parece certo. Isso é o suspeito nº1 do bug "clicar
-# no computador não faz nada" -- as outras fases não sofrem disso porque
-# redesenham tudo numa tela virtual e recalculam a escala do mouse a cada
-# frame (ver fase2._run_intro); esta fase ainda desenha direto na janela
-# real, então a correção mais simples é pedir ao Windows pra não escalar
-# a janela.
-#
-# Tenta a API mais nova/precisa primeiro (Per-Monitor V2 -- lida direito
-# com múltiplos monitores com escalas diferentes, comum no Windows 11) e
-# só cai pra APIs mais antigas se a atual não existir nessa versão do
-# Windows. Se o processo já foi marcado DPI aware antes (ex: manifesto
-# embutido no próprio python.exe), as chamadas seguintes simplesmente
-# falham/no-op -- daí o try/except em cada uma, sem interromper o jogo.
-if sys.platform == "win32":
-    import ctypes
-
-    _DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = ctypes.c_void_p(-4)
-    try:
-        ctypes.windll.user32.SetProcessDpiAwarenessContext(
-            _DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
-        )
-    except (AttributeError, OSError):
-        try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
-        except (AttributeError, OSError):
-            try:
-                ctypes.windll.user32.SetProcessDPIAware()
-            except (AttributeError, OSError):
-                pass
-
+# PROPOSITALMENTE sem nenhuma chamada de "DPI awareness" aqui: testado ao
+# vivo (clique físico simulado via API do Windows) e confirmado que, sem
+# ela, o Windows já converte a posição do mouse pra a mesma escala
+# "virtual" 960x600 que o resto do código usa -- é assim que TODAS as
+# outras fases (Fase_2, Fase_4, menu) já funcionam, nenhuma delas marca
+# o processo como DPI aware. Uma versão anterior desta fase chamava
+# SetProcessDpiAwarenessContext aqui, achando que isso evitava um bug de
+# clique -- na prática, o efeito real foi só deixar a janela desta fase
+# com um tamanho FÍSICO diferente das outras (crua/sem escala do Windows,
+# enquanto as demais são escaladas), quebrando o padrão "mesma resolução
+# visual em todas as fases" combinado com o grupo.
 # =====================================================================
 # 1. CONFIGURAÇÕES GERAIS DA JANELA E DO JOGO
 # =====================================================================
@@ -93,7 +67,6 @@ FPS = 60
 PRETO = (15, 15, 15)
 VERDE_TERMINAL = (60, 220, 100)  # texto/cursor estilo monitor de fósforo verde
 BRANCO = (245, 245, 240)
-AZUL_DESKTOP = (0, 90, 160)  # placeholder da área de trabalho "acesa"
 GOLD = (212, 168, 67)   # títulos -- mesma cor da Fase 2 (fase2.GOLD)
 CREAM = (232, 212, 176)  # instruções -- mesma cor da Fase 2 (fase2.CREAM)
 
@@ -164,9 +137,9 @@ def caminho_asset(nome_relativo):
 
 ASSETS = {
     # TODO: preencher conforme os assets forem criados. Nenhum é
-    # obrigatório ainda -- a tela de terminal é desenhada só com
-    # texto (ver Jogo._desenhar_terminal mais abaixo).
-    "fundo_desktop": caminho_asset("assets/imagens/fundo_desktop.png"),
+    # obrigatório ainda -- a tela de terminal é desenhada só com texto,
+    # e a tela final (Jogo._desenhar_desktop) usa o desenho estilizado
+    # de puzzle_terminal.desenhar_desktop_retro (sem imagem própria).
     "sprite_npc": caminho_asset("assets/imagens/system_ai.png"),
     "fonte_terminal": caminho_asset("assets/imagens/fonte_terminal.ttf"),
     # TODO: som de "bipe" do terminal / efeito de "ligar" o monitor ao
@@ -363,18 +336,76 @@ class Jogador:
 # =====================================================================
 # Contexto/system prompt do chatbot desta fase -- mesmo padrão do
 # PROMPT_SISTEMA_ADA da Fase 2 (Pygame/Fase_2/fase2/puzzles/ada_chatbot.py):
-# um texto que restringe a IA ao tema da fase.
-# TODO: reforçar com regras explícitas de escopo/tamanho e exemplos
-# few-shot quando o puzzle estiver definido de verdade (foi o que
-# resolveu a Ada divagar demais na Fase 2 -- ver ada_chatbot.py).
+# um texto que restringe a IA ao tema da fase. NUNCA entrega a resposta
+# do puzzle (ação/alvo certos ou a ordem WIMP) -- só aponta a direção,
+# pra não estragar a dedução que puzzle_terminal.py foi desenhado pra
+# exigir (ver ETAPAS_COMANDO/WIMP_ELEMENTOS lá).
 CONTEXTO_SYSTEM_AI = (
-    "Você é SYSTEM_AI, o assistente de um computador entre 1975 e 1990, "
-    "ajudando o jogador a entender a passagem da linha de comando pra "
-    "interface gráfica (o primeiro desktop). Responda sempre em "
-    "português, de forma breve e didática. "
-    # TODO: adicionar aqui as regras de escopo ("responda somente sobre "
-    # X, Y, Z") e os exemplos few-shot assim que o puzzle for definido.
+    "Você é o SYSTEM_AI, um assistente de sistema operacional de um "
+    "computador pessoal dos anos 1980. Seu tom é seco, direto e "
+    "técnico, como um terminal antigo -- nada de saudações longas, "
+    "emojis ou enrolação. Respostas curtas (no máximo 3 frases).\n\n"
+    "CONTEXTO DA CENA: o usuário está reconstruindo a passagem da linha "
+    "de comando para a interface gráfica. Ele precisa completar 3 "
+    "etapas: (1) e (2) são comandos de terminal, (3) é ativar os "
+    "elementos da interface gráfica (janela, ícone, menu, ponteiro).\n\n"
+    "REGRAS DE AJUDA (MUITO IMPORTANTE):\n"
+    "- Você NUNCA dá a resposta exata. Nunca diga o comando certo, o "
+    "alvo certo, nem a ordem exata dos elementos. Você apenas APONTA A "
+    "DIREÇÃO e faz o usuário raciocinar.\n"
+    "- Se perguntarem direto a resposta, recuse e devolva uma dica que "
+    "force o raciocínio.\n"
+    "- Ex. de dica válida: \"Pense no que precisa existir ANTES. Não há "
+    "menu flutuando sem algo que o contenha.\" (aponta, não entrega)\n"
+    "- Prefira dicas conceituais e históricas a instruções diretas.\n\n"
+    "FATOS HISTÓRICOS (você SÓ pode afirmar estes; se não souber, diga "
+    "que não tem o dado -- NUNCA invente datas ou nomes):\n"
+    "- A interface gráfica (janelas, ícones, menus, mouse) foi "
+    "inventada no Xerox PARC nos anos 1970 (computadores Xerox Alto e "
+    "depois Xerox Star).\n"
+    "- A Xerox criou a tecnologia, mas não a transformou em sucesso "
+    "comercial.\n"
+    "- A Apple popularizou a interface gráfica com o Macintosh, "
+    "lançado em 1984.\n"
+    "- A Microsoft lançou o Windows em 1985.\n"
+    "- Antes disso, os computadores eram usados por linha de comando "
+    "(texto digitado).\n\n"
+    "PROIBIÇÕES:\n"
+    "- NÃO invente fatos, datas, nomes de produtos ou versões. Se não "
+    "estiver na lista acima, você não afirma.\n"
+    "- NÃO fale de assuntos fora deste contexto (computação pessoal "
+    "dos anos 1975-1990 e o puzzle). Se perguntarem outra coisa, diga "
+    "que está fora do seu escopo.\n"
+    "- Responda SEMPRE em português do Brasil.\n\n"
+    # Exemplos few-shot -- testado ao vivo com qwen2.5:0.5b e confirmado
+    # que as regras acima SOZINHAS (só em prosa) não bastam: o modelo
+    # entregava a resposta do puzzle e respondia perguntas fora de
+    # escopo mesmo com a proibição escrita. Os exemplos concretos abaixo
+    # (mesmo padrão que resolveu isso na Ada, na Fase 2 -- ver
+    # PROMPT_SISTEMA_ADA em Pygame/Fase_2/fase2/puzzles/ada_chatbot.py)
+    # são o que faz a recusa/redirecionamento acontecer de verdade.
+    "EXEMPLOS:\n\n"
+    "Pergunta: Qual é o comando certo da primeira etapa? Me diz a resposta exata.\n"
+    "Resposta: Não entrego respostas prontas. Pense: qual pasta guardaria "
+    "algo do SISTEMA, e qual ação te deixa VER o que tem dentro dela?\n\n"
+    "Pergunta: Qual a ordem certa de ativar janela, ícone, menu e ponteiro?\n"
+    "Resposta: Não vou te dar a ordem. Pense no que precisa existir ANTES: "
+    "não há ícone nem menu sem algo que os contenha, e não há ponteiro "
+    "sem nada pra apontar.\n\n"
+    "Pergunta: Qual seu time de futebol favorito?\n"
+    "Resposta: Isso está fora do meu escopo. Só falo sobre computadores "
+    "pessoais (1975-1990) e o que você precisa resolver aqui.\n\n"
+    "Pergunta: Quem inventou a interface gráfica e quando?\n"
+    "Resposta: Foi o Xerox PARC, nos anos 1970, com os computadores Alto "
+    "e depois Star -- a Xerox criou a tecnologia mas não a tornou um "
+    "sucesso comercial."
 )
+
+# Quantas perguntas o jogador pode fazer ao SYSTEM_AI durante A FASE
+# INTEIRA (não só dentro do puzzle -- o limite é do NPCChatbot, o mesmo
+# objeto usado no quarto e no puzzle). Só conta pergunta ENVIADA (ver
+# NPCChatbot._enviar_pergunta), não só abrir a caixa de diálogo.
+LIMITE_DICAS_SYSTEM_AI = 3
 
 
 # =====================================================================
@@ -410,7 +441,6 @@ class Jogo:
         self.fonte_pequena = carregar_fonte(None, 18)
 
         # --- Imagens (com placeholder automático se ainda não existirem) ---
-        self.img_fundo_desktop = carregar_imagem(ASSETS["fundo_desktop"], (LARGURA, ALTURA))
         self.img_fundo_quarto = carregar_imagem(CENARIO_QUARTO_PATH, (LARGURA, ALTURA))
 
         # --- Avatar do jogador (mesmos frames/escala da Fase 2) ---
@@ -441,21 +471,28 @@ class Jogo:
         # --- NPC assistente (SYSTEM_AI) ---
         # Posição fixa por enquanto (canto inferior direito) -- ainda
         # não há um personagem "andando" nesta fase.
-        # TODO: ajustar a posição quando o cenário/puzzle da tela de
-        # terminal for definido.
+        # LARGURA - 200 (em vez de LARGURA - 80): a dica "Pressione E
+        # para falar com SYSTEM_AI" tem ~360px de largura na fonte
+        # consolas e é centralizada em cima do NPC -- perto demais da
+        # borda direita, ela ultrapassava os 960px da janela e o nome
+        # ficava cortado (o clamp_ip em npc_chatbot.desenhar_dica_interacao
+        # é a defesa extra, mas a margem certa aqui evita precisar dele
+        # na prática).
         self.rect_npc = pygame.Rect(0, 0, 64, 64)
-        self.rect_npc.center = (LARGURA - 80, ALTURA - 80)
-        self.npc_chat = NPCChatbot(self.rect_npc, "SYSTEM_AI", CONTEXTO_SYSTEM_AI)
+        self.rect_npc.center = (LARGURA - 200, ALTURA - 80)
+        self.npc_chat = NPCChatbot(
+            self.rect_npc, "SYSTEM_AI", CONTEXTO_SYSTEM_AI,
+            limite_perguntas=LIMITE_DICAS_SYSTEM_AI,
+        )
 
         # --- Estado inicial: a fase sempre começa na cena do quarto ---
         self.estado = Jogo.QUARTO
 
-        # DEBUG temporário (bug do clique no computador): momento (em
-        # pygame.time.get_ticks(), ms) até quando mostrar o banner
-        # "PUZZLE ABERTO" na tela, pra confirmar visualmente que o clique
-        # foi detectado sem precisar olhar o console. Remover quando o
-        # puzzle de verdade existir (ver TODO no clique, mais abaixo).
-        self.puzzle_debug_ate_ms = 0
+        # --- Estado do puzzle do terminal (persiste entre aberturas) ---
+        # Criado uma única vez aqui, mesmo padrão do ada_chat/estado_puzzle
+        # na Fase 2: fechar o puzzle (ESC) sem terminar e clicar no
+        # computador de novo continua exatamente na mesma etapa.
+        self.estado_puzzle_terminal = puzzle_terminal.EstadoPuzzleTerminal()
 
     # -----------------------------------------------------------------
     # TELA INICIAL (intro) -- mesma estrutura/estilo de fase2._run_intro
@@ -564,38 +601,34 @@ class Jogo:
                         self.npc_chat.tratar_evento(evento)
                     elif evento.key == pygame.K_ESCAPE:
                         rodando = False
-                    elif evento.key == pygame.K_e:
+                    elif evento.key == pygame.K_e and not self.npc_chat.limite_atingido():
                         # TODO: sem checar distância ainda (ver
                         # perto_do_jogador em npc_chatbot.py) -- por
                         # enquanto E sempre abre o SYSTEM_AI.
                         self.npc_chat.abrir_dialogo()
-
-                    # TODO: eventos do puzzle da tela de terminal
-                    # (digitar comandos, montar o desktop, etc.) entram
-                    # aqui -- provavelmente um bloco dedicado tipo
-                    # "elif self.estado == Jogo.TERMINAL: ..."
 
                 elif (
                     evento.type == pygame.MOUSEBUTTONDOWN
                     and evento.button == 1
                     and self.estado == Jogo.QUARTO
                     and not self.npc_chat.dialogo_aberto
+                    and COMPUTADOR_RECT.collidepoint(evento.pos)
                 ):
-                    # DEBUG temporário -- imprime TODO clique (dentro ou
-                    # fora do retângulo), pra comparar a coordenada real
-                    # do clique com COMPUTADOR_RECT caso ele continue sem
-                    # disparar. TODO: remover quando o puzzle de verdade
-                    # existir e o clique já estiver confirmado funcionando.
-                    dentro = COMPUTADOR_RECT.collidepoint(evento.pos)
-                    print(f"[DEBUG] clique em {evento.pos} | janela real: "
-                          f"{pygame.display.get_surface().get_size()} | "
-                          f"COMPUTADOR_RECT: {tuple(COMPUTADOR_RECT)} | dentro? {dentro}")
-                    if dentro:
-                        # TODO: abrir o puzzle de verdade (linha de comando
-                        # -> desktop) aqui. Por enquanto só um placeholder
-                        # pra confirmar que a área clicável está certa.
-                        print("Computador clicado -- TODO: abrir puzzle da Fase 9")
-                        self.puzzle_debug_ate_ms = pygame.time.get_ticks() + 2000
+                    # Clicou no computador da escrivaninha: "empresta" a
+                    # tela pro puzzle do terminal (mesmo padrão de
+                    # fase2.py chamando babbage_lovelace.run() -- ver
+                    # Pygame/Fase_2/fase2/fase2.py) até o jogador fechar
+                    # (ESC, sem terminar) ou concluir as 3 etapas.
+                    self.estado = Jogo.TERMINAL
+                    resolveu = puzzle_terminal.run(
+                        self.tela, self.relogio, self.npc_chat,
+                        self.estado_puzzle_terminal, LARGURA, ALTURA,
+                    )
+                    # TODO: quando resolveu, a fase deveria levar o
+                    # jogador pra sala da máquina do tempo (como a Fase 2
+                    # faz -- ver fase2._fade_transition); por enquanto só
+                    # troca pro placeholder de DESKTOP.
+                    self.estado = Jogo.DESKTOP if resolveu else Jogo.QUARTO
 
             # Movimento do jogador só faz sentido na cena do quarto, e só
             # quando nenhuma caixa de diálogo está roubando o teclado
@@ -604,10 +637,13 @@ class Jogo:
                 teclas = pygame.key.get_pressed()
                 self.jogador.mover(teclas, FLOOR_RECT)
 
-            # TODO: lógica de atualização do puzzle entra aqui --
-            # checar se o jogador já "montou" o desktop corretamente e,
-            # quando isso acontecer, disparar a transição (fade?) e só
-            # depois trocar self.estado para Jogo.DESKTOP.
+            # SYSTEM_AI precisa saber em qual etapa do puzzle o jogador
+            # está agora mesmo perguntando daqui do quarto (antes de
+            # abrir o computador) -- mesmo contexto dinâmico usado
+            # dentro de puzzle_terminal.run().
+            self.npc_chat.atualizar_contexto_dinamico(
+                puzzle_terminal.contexto_dinamico_etapa(self.estado_puzzle_terminal)
+            )
 
             if self.estado == Jogo.QUARTO:
                 self._desenhar_quarto()
@@ -619,6 +655,7 @@ class Jogo:
             self.npc_chat.desenhar(self.tela, self.fonte_texto, self.fonte_pequena, LARGURA, ALTURA)
             if not self.npc_chat.dialogo_aberto:
                 self.npc_chat.desenhar_dica_interacao(self.tela, self.fonte_pequena)
+            self.npc_chat.desenhar_contador_dicas(self.tela, self.fonte_pequena)
 
             pygame.display.flip()
             self.relogio.tick(FPS)
@@ -642,33 +679,16 @@ class Jogo:
             midtop=(int(self.jogador.pos.x), int(self.jogador.pos.y) + 4)
         ))
 
-        # DEBUG temporário -- contorno do retângulo clicável do computador,
-        # pra confirmar visualmente que ele está em cima do monitor/teclado
-        # da escrivaninha na imagem real (ver bug do clique não funcionar).
-        # TODO: remover esta linha quando o puzzle de verdade existir.
-        pygame.draw.rect(self.tela, (255, 40, 40), COMPUTADOR_RECT, width=2)
-
-        # DEBUG temporário -- banner "PUZZLE ABERTO" por 2s após o clique
-        # no computador, pra confirmar o clique sem precisar olhar o
-        # console. TODO: substituir pela abertura de verdade do puzzle.
-        if pygame.time.get_ticks() < self.puzzle_debug_ate_ms:
-            banner_font = pygame.font.SysFont("consolas", 30, bold=True)
-            banner = banner_font.render("PUZZLE ABERTO", True, (255, 230, 60))
-            fundo_rect = banner.get_rect(center=(LARGURA // 2, 90)).inflate(30, 20)
-            pygame.draw.rect(self.tela, (20, 20, 20), fundo_rect, border_radius=8)
-            pygame.draw.rect(self.tela, (255, 230, 60), fundo_rect, width=2, border_radius=8)
-            self.tela.blit(banner, banner.get_rect(center=fundo_rect.center))
-
     # -----------------------------------------------------------------
-    # DESENHO: TERMINAL (placeholder do puzzle)
+    # DESENHO: TERMINAL (só um placeholder de transição -- o puzzle de
+    # verdade roda dentro de puzzle_terminal.run(), chamado direto no
+    # clique do computador; este estado só é redesenhado, se algum dia
+    # for, no frame logo antes/depois do puzzle "tomar" a tela)
     # -----------------------------------------------------------------
     def _desenhar_terminal(self):
-        """Tela de terminal preta com um cursor piscando -- placeholder
-        até o puzzle de verdade (linha de comando -> desktop) ser
-        implementado."""
+        """Tela de terminal preta com um cursor piscando -- fallback
+        visual simples (o puzzle de verdade é puzzle_terminal.run())."""
         self.tela.fill(PRETO)
-
-        # TODO: texto/prompt de verdade (e o puzzle em si) entram aqui.
         # Por enquanto só um prompt fixo com cursor piscando, pra
         # confirmar que a janela e o laço principal estão funcionando.
         prompt = "C:\\>"
@@ -677,27 +697,23 @@ class Jogo:
         render = self.fonte_terminal.render(texto, True, VERDE_TERMINAL)
         self.tela.blit(render, (40, ALTURA - 60))
 
-        # TODO: desenhar aqui os elementos do puzzle (ícones espalhados,
-        # janelas incompletas, comandos disponíveis, o que for definido)
-        # conforme a mecânica for criada.
-
     # -----------------------------------------------------------------
     # DESENHO: DESKTOP (tela final, quando o puzzle for resolvido)
     # -----------------------------------------------------------------
     def _desenhar_desktop(self):
-        """Área de trabalho colorida -- mostrada quando o puzzle for
-        resolvido e a fase "acende". Por enquanto só um placeholder de
-        cor sólida (ou a imagem de fundo, se já existir)."""
-        if self.img_fundo_desktop:
-            self.tela.blit(self.img_fundo_desktop, (0, 0))
-        else:
-            self.tela.fill(AZUL_DESKTOP)
+        """Desktop gráfico estilizado (retrô, anos 80) -- mostrado
+        depois que o puzzle é resolvido e a tela "acende" (a transição
+        em si acontece dentro de puzzle_terminal.run(), ver
+        _animar_tela_acendendo lá). Reaproveita a MESMA função de
+        desenho da transição (puzzle_terminal.desenhar_desktop_retro),
+        pra o visual continuar idêntico depois que a animação termina.
+        """
+        puzzle_terminal.desenhar_desktop_retro(self.tela, LARGURA, ALTURA)
 
-        # TODO: elementos do desktop reconstruído (ícones, janelas,
-        # barra de tarefas -- o que for decidido) entram aqui.
-        # TODO: a transição de verdade entre TERMINAL e DESKTOP (fade
-        # ou outro efeito) deve acontecer ANTES da fase chegar nesse
-        # estado, não aqui dentro do desenho -- ver TODO em executar().
+        # TODO: a fase deveria seguir pra sala da máquina do tempo a
+        # partir daqui (como a Fase 2 faz -- ver fase2._fade_transition
+        # em Pygame/Fase_2/fase2/fase2.py); por enquanto ela só fica
+        # parada nesse estado.
 
 
 # =====================================================================

@@ -5,10 +5,16 @@ npc_chatbot.py
 Módulo GENÉRICO para transformar qualquer NPC do jogo em um chatbot
 conectado a uma IA local rodando no Ollama (modelo qwen2.5:0.5b).
 
-Copiado sem alterações da Fase_4 (Pygame/Fase_4/npc_chatbot.py) --
-é um módulo pensado pra ser reutilizado assim, trocando só o
-`contexto_fase` passado na hora de criar o NPCChatbot (ver
-CONTEXTO_SYSTEM_AI em fase9.py).
+Baseado no módulo genérico da Fase_4 (Pygame/Fase_4/npc_chatbot.py) --
+a ideia continua a mesma (reutilizável, trocando só o `contexto_fase`),
+mas esta cópia (só desta fase) ganhou 2 recursos opcionais que a Fase 9
+usa: `contexto_dinamico` (a fase pode injetar um contexto extra que
+muda em tempo real, ex: em qual etapa do puzzle o jogador está -- ver
+atualizar_contexto_dinamico()) e `limite_perguntas` (limita quantas
+perguntas o jogador pode fazer no total -- ver perguntas_restantes()/
+limite_atingido()). Nenhum dos dois quebra o uso "genérico" de antes:
+os dois são None/vazio por padrão, então um NPC criado sem eles se
+comporta exatamente como antes.
 
 COMO FUNCIONA
 -------------
@@ -17,6 +23,7 @@ COMO FUNCIONA
      a distância até o jogador)
    - um "contexto_fase": um texto que restringe sobre o que a IA
      pode responder (ex: só sobre o enigma da fase 9)
+   - opcionalmente, um `limite_perguntas` (ver acima)
 2. Quando o jogador chega perto do NPC, aparece uma dica
    ("Pressione E para conversar").
 3. Ao pressionar E, abre uma caixa de diálogo. O jogador digita a
@@ -45,15 +52,31 @@ import urllib.request
 import urllib.error
 import pygame
 
+from estilo_crt import (
+    COR_FUNDO_CRT,
+    COR_AMBAR,
+    COR_AMBAR_DIM,
+    COR_AMBAR_BRILHO,
+    COR_AMBAR_ALERTA,
+    render_texto_glow,
+    desenhar_scanlines,
+)
+
 
 # =====================================================================
 # CONFIGURAÇÃO DA IA (pode deixar como está, é igual para todas as fases)
 # =====================================================================
 OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "qwen2.5:0.5b"
+# qwen2.5:0.5b ignorava as regras de comportamento do CONTEXTO_SYSTEM_AI
+# (recusar dar a resposta do puzzle, ficar no escopo) mesmo com elas
+# escritas em prosa -- testado ao vivo e confirmado. 1.5b segue melhor
+# esse tipo de regra (mesma troca que resolveu o mesmo problema na Ada,
+# na Fase 2 -- ver Pygame/Fase_2/fase2/puzzles/ada_chatbot.py).
+OLLAMA_MODEL = "qwen2.5:1.5b"
 TIMEOUT_SEGUNDOS = 30          # tempo máximo esperando a resposta da IA
 MAX_CARACTERES_PERGUNTA = 200  # limite de tamanho da pergunta digitada
 MAX_TROCAS_HISTORICO = 6       # quantas mensagens antigas mandamos de volta p/ IA
+TEMPERATURE_SYSTEM_AI = 0.4    # baixa -- respostas mais previsíveis/na régua, mesmo valor que ajudou a Ada a não divagar
 
 
 def _quebrar_texto(texto, fonte, largura_maxima):
@@ -98,7 +121,7 @@ class NPCChatbot:
     """
 
     def __init__(self, rect_npc, nome_npc, contexto_fase,
-                 distancia_interacao=140):
+                 distancia_interacao=140, limite_perguntas=None):
         """
         rect_npc         : o pygame.Rect do NPC na cena (ex: self.rect_npc)
         nome_npc          : nome exibido no topo da caixa de diálogo
@@ -109,11 +132,17 @@ class NPCChatbot:
                             informações.
         distancia_interacao: distância em pixels para a dica
                             "Pressione E" aparecer
+        limite_perguntas  : quantas perguntas o jogador pode fazer no
+                            total (None = sem limite, comportamento
+                            padrão/genérico). Usado pela Fase 9 pra
+                            limitar as dicas do SYSTEM_AI -- ver
+                            perguntas_restantes()/limite_atingido().
         """
         self.rect_npc = rect_npc
         self.nome_npc = nome_npc
         self.contexto_fase = contexto_fase
         self.distancia_interacao = distancia_interacao
+        self.limite_perguntas = limite_perguntas
 
         # --- Estado da conversa ---
         self.dialogo_aberto = False
@@ -122,6 +151,33 @@ class NPCChatbot:
         self.carregando = False               # True enquanto espera a IA responder
         self.historico = []                   # memória curta da conversa
         self.erro_conexao = False
+        self.perguntas_feitas = 0             # só conta quando o jogador ENVIA (ver _enviar_pergunta)
+
+        # Contexto EXTRA, dinâmico -- somado ao contexto_fase na hora de
+        # montar o system prompt (ver _chamar_ollama). Quem usa isso é a
+        # fase que criou o NPC, chamando atualizar_contexto_dinamico()
+        # sempre que algo relevante mudar (ex: a Fase 9 atualiza com a
+        # etapa atual do puzzle, pra o SYSTEM_AI só dar dica dela).
+        self.contexto_dinamico = ""
+
+    # -----------------------------------------------------------------
+    # CONTEXTO DINÂMICO (ex: em qual etapa do puzzle o jogador está)
+    # -----------------------------------------------------------------
+    def atualizar_contexto_dinamico(self, texto):
+        self.contexto_dinamico = texto
+
+    # -----------------------------------------------------------------
+    # LIMITE DE PERGUNTAS
+    # -----------------------------------------------------------------
+    def perguntas_restantes(self):
+        """None se este NPC não tem limite; senão, quantas perguntas
+        ainda podem ser feitas (nunca negativo)."""
+        if self.limite_perguntas is None:
+            return None
+        return max(0, self.limite_perguntas - self.perguntas_feitas)
+
+    def limite_atingido(self):
+        return self.limite_perguntas is not None and self.perguntas_feitas >= self.limite_perguntas
 
     # -----------------------------------------------------------------
     # PROXIMIDADE
@@ -165,7 +221,11 @@ class NPCChatbot:
 
         if evento.key == pygame.K_RETURN:
             pergunta = self.pergunta_atual.strip()
-            if pergunta:
+            # limite_atingido(): defesa extra -- quem chama abrir_dialogo()
+            # já deveria checar isso antes (ver fase9.py/puzzle_terminal.py),
+            # mas não custa garantir aqui também que nenhuma pergunta a
+            # mais seja enviada mesmo se a caixa já estiver aberta.
+            if pergunta and not self.limite_atingido():
                 self._enviar_pergunta(pergunta)
                 self.pergunta_atual = ""
         elif evento.key == pygame.K_BACKSPACE:
@@ -178,6 +238,9 @@ class NPCChatbot:
     # CHAMADA À IA (Ollama) EM UMA THREAD SEPARADA
     # -----------------------------------------------------------------
     def _enviar_pergunta(self, pergunta):
+        # Conta como pergunta feita SÓ aqui (envio de verdade) -- abrir a
+        # caixa de diálogo (abrir_dialogo) não consome nada do limite.
+        self.perguntas_feitas += 1
         self.carregando = True
         self.resposta_atual = "Pensando..."
         thread = threading.Thread(target=self._chamar_ollama, args=(pergunta,), daemon=True)
@@ -185,10 +248,17 @@ class NPCChatbot:
 
     def _chamar_ollama(self, pergunta):
         """Roda em uma thread separada para não travar o pygame.
-        Monta a conversa (system + histórico curto + pergunta nova) e
-        chama a API local do Ollama."""
+        Monta a conversa (system + contexto dinâmico + histórico curto +
+        pergunta nova) e chama a API local do Ollama."""
         try:
-            mensagens = [{"role": "system", "content": self.contexto_fase}]
+            contexto_completo = self.contexto_fase
+            if self.contexto_dinamico:
+                # Somado ao contexto_fase fixo -- ver
+                # atualizar_contexto_dinamico() (a Fase 9 usa isso pra
+                # avisar em qual etapa do puzzle o jogador está agora).
+                contexto_completo = f"{self.contexto_fase}\n\n{self.contexto_dinamico}"
+
+            mensagens = [{"role": "system", "content": contexto_completo}]
             mensagens.extend(self.historico[-MAX_TROCAS_HISTORICO:])
             mensagens.append({"role": "user", "content": pergunta})
 
@@ -196,6 +266,7 @@ class NPCChatbot:
                 "model": OLLAMA_MODEL,
                 "messages": mensagens,
                 "stream": False,
+                "options": {"temperature": TEMPERATURE_SYSTEM_AI},
             }).encode("utf-8")
 
             requisicao = urllib.request.Request(
@@ -233,14 +304,49 @@ class NPCChatbot:
     # DESENHO: DICA "Pressione E" (quando perto, com diálogo fechado)
     # -----------------------------------------------------------------
     def desenhar_dica_interacao(self, tela, fonte_pequena):
-        texto = f"Pressione E para falar com {self.nome_npc}"
-        render = fonte_pequena.render(texto, True, (255, 255, 255))
+        # Quando o limite de perguntas acabou, a dica de interação avisa
+        # disso em vez de convidar a apertar E (que nem abre mais o
+        # diálogo -- ver o guard em fase9.py/puzzle_terminal.py).
+        if self.limite_atingido():
+            texto, cor = "Sem dicas restantes", COR_AMBAR_ALERTA
+        else:
+            texto, cor = f"Pressione E para falar com {self.nome_npc}", COR_AMBAR
+        render = fonte_pequena.render(texto, True, cor)
         fundo_rect = render.get_rect(midbottom=(self.rect_npc.centerx, self.rect_npc.top - 10))
         fundo_rect.inflate_ip(20, 10)
+        # Se o NPC estiver perto de uma borda da tela (ex: canto inferior
+        # direito), a dica centralizada nele pode ultrapassar a tela --
+        # clamp_ip empurra o retângulo de volta pra dentro dos limites de
+        # `tela`, sem mudar o tamanho dele, garantindo que o texto nunca
+        # seja cortado nem desenhado fora da janela.
+        fundo_rect.clamp_ip(tela.get_rect())
 
         superficie_fundo = pygame.Surface(fundo_rect.size, pygame.SRCALPHA)
-        superficie_fundo.fill((0, 0, 0, 170))
+        superficie_fundo.fill((*COR_FUNDO_CRT, 200))
         tela.blit(superficie_fundo, fundo_rect.topleft)
+        pygame.draw.rect(tela, COR_AMBAR_DIM, fundo_rect, width=1)
+        tela.blit(render, render.get_rect(center=fundo_rect.center))
+
+    # -----------------------------------------------------------------
+    # DESENHO: CONTADOR DE DICAS RESTANTES (canto da tela, sempre visível
+    # -- só aparece se este NPC tiver limite_perguntas definido)
+    # -----------------------------------------------------------------
+    def desenhar_contador_dicas(self, tela, fonte, pos=(20, 20)):
+        if self.limite_perguntas is None:
+            return
+
+        restantes = self.perguntas_restantes()
+        if restantes > 0:
+            texto, cor = f"Dicas restantes: {restantes}", COR_AMBAR
+        else:
+            texto, cor = "Sem dicas restantes", COR_AMBAR_ALERTA
+
+        render = fonte.render(texto, True, cor)
+        fundo_rect = render.get_rect(topleft=pos).inflate(16, 8)
+        superficie_fundo = pygame.Surface(fundo_rect.size, pygame.SRCALPHA)
+        superficie_fundo.fill((*COR_FUNDO_CRT, 200))
+        tela.blit(superficie_fundo, fundo_rect.topleft)
+        pygame.draw.rect(tela, COR_AMBAR_DIM, fundo_rect, width=1)
         tela.blit(render, render.get_rect(center=fundo_rect.center))
 
     # -----------------------------------------------------------------
@@ -255,16 +361,16 @@ class NPCChatbot:
         caixa_rect.midbottom = (largura_tela // 2, altura_tela - 30)
 
         superficie = pygame.Surface(caixa_rect.size, pygame.SRCALPHA)
-        superficie.fill((15, 15, 20, 235))
+        superficie.fill((*COR_FUNDO_CRT, 235))
         tela.blit(superficie, caixa_rect.topleft)
-        pygame.draw.rect(tela, (196, 164, 96), caixa_rect, width=3, border_radius=10)
+        pygame.draw.rect(tela, COR_AMBAR, caixa_rect, width=3)
 
         # --- Nome do NPC ---
-        nome_render = fonte_texto.render(self.nome_npc, True, (196, 164, 96))
+        nome_render = render_texto_glow(fonte_texto, self.nome_npc, COR_AMBAR_BRILHO)
         tela.blit(nome_render, (caixa_rect.left + 20, caixa_rect.top + 12))
 
         # --- Resposta da IA (com quebra de linha automática) ---
-        cor_resposta = (220, 90, 90) if self.erro_conexao else (245, 245, 240)
+        cor_resposta = COR_AMBAR_ALERTA if self.erro_conexao else COR_AMBAR
 
         texto_x = caixa_rect.left + 20
         texto_y = caixa_rect.top + 50
@@ -300,21 +406,23 @@ class NPCChatbot:
             y += altura_linha
         tela.set_clip(recorte_anterior)
 
-        # --- Campo de pergunta do jogador ---
+        # --- Campo de pergunta do jogador -- linha de comando escura com
+        # texto âmbar (em vez do antigo campo claro estilo formulário),
+        # pra combinar com o resto da estética de terminal CRT.
         campo_rect = pygame.Rect(caixa_rect.left + 20, caixa_rect.bottom - 55,
                                   caixa_rect.width - 40, 40)
-        pygame.draw.rect(tela, (245, 245, 240), campo_rect, border_radius=6)
-        pygame.draw.rect(tela, (15, 15, 15), campo_rect, width=2, border_radius=6)
+        pygame.draw.rect(tela, COR_FUNDO_CRT, campo_rect)
+        pygame.draw.rect(tela, COR_AMBAR, campo_rect, width=2)
 
-        texto_digitado = self.pergunta_atual
-        render_pergunta = fonte_pequena.render(texto_digitado, True, (15, 15, 15))
+        texto_digitado = f"> {self.pergunta_atual}"
+        render_pergunta = fonte_pequena.render(texto_digitado, True, COR_AMBAR)
         tela.blit(render_pergunta, (campo_rect.x + 10,
                                      campo_rect.y + (campo_rect.height - render_pergunta.get_height()) // 2))
 
         # Cursor piscante
         if not self.carregando and pygame.time.get_ticks() % 1000 < 500:
             cursor_x = campo_rect.x + 10 + render_pergunta.get_width() + 2
-            pygame.draw.line(tela, (15, 15, 15),
+            pygame.draw.line(tela, COR_AMBAR,
                               (cursor_x, campo_rect.y + 6),
                               (cursor_x, campo_rect.bottom - 6), 2)
 
@@ -322,6 +430,9 @@ class NPCChatbot:
         instrucao = "ENTER para enviar/continuar | ESC para sair da conversa"
         if self.carregando:
             instrucao = "Aguardando resposta..."
-        render_instrucao = fonte_pequena.render(instrucao, True, (120, 120, 120))
+        render_instrucao = fonte_pequena.render(instrucao, True, COR_AMBAR_DIM)
         tela.blit(render_instrucao, (caixa_rect.right - render_instrucao.get_width() - 15,
                                       caixa_rect.top + 16))
+
+        # --- scanlines só na área desta caixa (efeito de monitor CRT) ---
+        desenhar_scanlines(tela, rect=caixa_rect)
