@@ -10,25 +10,34 @@ de texto, tela preta com prompt) para a interface gráfica (o primeiro
 desktop, com janelas, ícones e mouse). O jogador começa numa tela de
 terminal preta (estilo microcomputador dos anos 70) e precisa
 reconstruir o primeiro desktop gráfico; quando acerta, a tela "acende"
-numa área de trabalho colorida e a fase termina.
+numa área de trabalho colorida, uma sequência de vitória leva o
+personagem pra uma sala separada com a máquina do tempo (mesmo
+espírito da Fase 2) e a fase termina ao clicar nela.
 
 ESTRUTURA DO JOGO (máquina de estados)
 ----------------------------------------------------------------------
-QUARTO    -> cena principal: o quarto retrô (assets/imagens/cenario_
-             fase_9.png) onde o jogador anda com WASD/setas e pode
-             clicar no computador em cima da escrivaninha para
-             começar o puzzle. O jogador começa aqui.
-TERMINAL  -> o puzzle de verdade (3 etapas encadeadas: ação + alvo,
-             uma etapa alimenta a pista da próxima) -- implementado em
-             puzzle_terminal.py, chamado direto no clique do
-             computador (mesmo padrão de fase2.py chamando
-             babbage_lovelace.run()). Ao concluir, a própria função já
-             faz a tela "acender" (efeito simples de transição).
-DESKTOP   -> tela "acesa", área de trabalho colorida -- fim da fase.
-             # TODO: depois de resolvido, levar o jogador pra sala da
-             máquina do tempo (como a Fase 2 faz -- ver
-             fase2._fade_transition em Pygame/Fase_2/fase2/fase2.py);
-             por enquanto só troca pro placeholder de DESKTOP.
+QUARTO      -> cena principal: o quarto retrô (assets/imagens/cenario_
+               fase_9.png) onde o jogador anda com WASD/setas e pode
+               clicar no computador em cima da escrivaninha para
+               começar o puzzle. O jogador começa aqui.
+TERMINAL    -> o puzzle de verdade (3 etapas encadeadas: ação + alvo,
+               uma etapa alimenta a pista da próxima) -- implementado
+               em puzzle_terminal.py, chamado direto no clique do
+               computador (mesmo padrão de fase2.py chamando
+               babbage_lovelace.run()). Ao concluir, a própria função
+               já faz a tela "acender" (efeito simples de transição)
+               e devolve True -- ver Jogo._iniciar_sequencia_de_vitoria.
+SALA_FINAL  -> sala separada (assets/imagens/cena_final.png), só com a
+               máquina do tempo (assets/imagens/maquina_do_tempo_v4.png,
+               mesmo asset da Fase 2): o personagem entra pela esquerda,
+               anda sozinho até perto da máquina (mesma lógica de
+               fase2.Jogador.mover_para) e, ao chegar, o jogador
+               recupera o controle e só precisa clicar nela pra
+               terminar a fase.
+               # TODO: quando a Fase 10 existir (a combinar com o
+               grupo), conectar a saída da máquina do tempo a ela pelo
+               menu -- por enquanto só encerra a fase (ver
+               Jogo.executar()).
 
 Este arquivo monta a cena/estados da fase; a lógica do puzzle em si
 mora em puzzle_terminal.py (dados do puzzle separados da lógica, ver
@@ -46,6 +55,7 @@ import pygame
 
 from npc_chatbot import NPCChatbot
 import puzzle_terminal
+from estilo_crt import COR_FUNDO_CRT, COR_AMBAR, COR_AMBAR_BRILHO, render_texto_glow, desenhar_scanlines
 
 # PROPOSITALMENTE sem nenhuma chamada de "DPI awareness" aqui: testado ao
 # vivo (clique físico simulado via API do Windows) e confirmado que, sem
@@ -117,6 +127,54 @@ COMPUTADOR_RECT = pygame.Rect(295, 120, 155, 95)
 
 PLAYER_RADIUS = 22  # mesma margem de colisão usada em fase2.py
 
+# Distância (em pixels) que já conta como "chegou" no alvo de uma
+# caminhada automática -- mesmo valor/papel de fase2.CLICK_ARRIVE_DIST,
+# usado só por Jogador.mover_para() (caminhada sozinha até a máquina do
+# tempo, na sala final).
+CLICK_ARRIVE_DIST = 4
+
+# ---------------------------------------------------------------------------
+# Sala final (SALA_FINAL) -- só existe depois que o puzzle é resolvido: uma
+# sala separada, com a máquina do tempo, no mesmo espírito da sala da
+# máquina do tempo de Pygame/Fase_2/fase2/fase2.py (MACHINE_ROOM_*/
+# TIME_MACHINE_*): o personagem entra pela lateral esquerda do chão livre e
+# anda sozinho até perto da máquina; o jogador só recupera o controle
+# depois que ele chegar lá (ver Jogo._iniciar_sequencia_de_vitoria/
+# Jogo.executar()).
+# ---------------------------------------------------------------------------
+# Medidos direto em cima de assets/imagens/cena_final.png (1586x992, depois
+# escalado pra LARGURA x ALTURA): a faixa central da sala tem chão de
+# madeira livre; as bancadas com computadores retrô ficam nas duas
+# laterais, fora deste retângulo (por isso o personagem "entra" já dentro
+# da faixa livre, não na borda esquerda da tela).
+SALA_FINAL_FLOOR_RECT = pygame.Rect(230, 350, 560, 245)
+SALA_FINAL_ENTRY_POS = (255, 560)  # pés na borda esquerda do chão livre, como se tivesse acabado de entrar
+
+# Máquina do tempo ENCOSTADA na parede do fundo (não solta no meio do
+# chão): a base dela (MAQUINA_TEMPO_POS + metade da altura) fica bem em
+# cima da linha onde a textura de chão de madeira (com as tábuas
+# visíveis) realmente começa nesta imagem (~y=335 -- medido direto em
+# cima de cena_final.png já escalada pra 960x600; a faixa acima disso,
+# até uns y=300, ainda é parede/rodapé, não chão). A altura (240)
+# continua um pouco MAIOR que o personagem (AVATAR_ALTURA=220) --
+# imponente, já que é uma máquina em que a pessoa entra dentro -- mas
+# ainda cabe dentro do trecho vazio da parede sem invadir as
+# estantes/bancadas dos dois lados, então não quebra a perspectiva.
+MAQUINA_TEMPO_ALTURA = 240
+MAQUINA_TEMPO_POS = (480, 215)  # centro do trecho vazio da parede, base tocando o chão em ~y=335
+# Onde os pés do personagem param na caminhada automática: em frente à
+# máquina. Não dá pra ficar 100% sem sobrepor (a máquina agora ocupa boa
+# parte da faixa de chão vertical disponível) sem esbarrar na dica
+# MACHINE_HINT colada no rodapé -- por isso um pequeno overlap entre o
+# topo da cabeça do personagem e a base da máquina é aceitável aqui
+# (mesmo efeito de estar bem em pé na frente/embaixo dela).
+MAQUINA_TEMPO_CHEGADA_POS = (480, 540)
+
+MENSAGEM_VITORIA = "Você concluiu, parabéns!"
+MENSAGEM_VITORIA_SEGUNDOS = 2.0  # mesmo valor de fase2.MENSAGEM_VITORIA_SEGUNDOS
+MACHINE_HINT = "Entre na máquina do tempo para ir para a próxima fase!"
+FADE_DURATION_SECONDS = 0.35  # mesmo valor de fase2.FADE_DURATION_SECONDS
+
 
 # =====================================================================
 # 2. CAMINHOS DOS ASSETS -> PREENCHA AQUI COM SUAS IMAGENS
@@ -138,8 +196,9 @@ def caminho_asset(nome_relativo):
 ASSETS = {
     # TODO: preencher conforme os assets forem criados. Nenhum é
     # obrigatório ainda -- a tela de terminal é desenhada só com texto,
-    # e a tela final (Jogo._desenhar_desktop) usa o desenho estilizado
-    # de puzzle_terminal.desenhar_desktop_retro (sem imagem própria).
+    # e o desktop reconstruído (mostrado ao resolver o puzzle) usa o
+    # desenho estilizado de puzzle_terminal.desenhar_desktop_retro (sem
+    # imagem própria).
     "sprite_npc": caminho_asset("assets/imagens/system_ai.png"),
     "fonte_terminal": caminho_asset("assets/imagens/fonte_terminal.ttf"),
     # TODO: som de "bipe" do terminal / efeito de "ligar" o monitor ao
@@ -149,6 +208,13 @@ ASSETS = {
 
 # Cenário do quarto (fundo da cena QUARTO).
 CENARIO_QUARTO_PATH = caminho_asset("assets/imagens/cenario_fase_9.png")
+
+# Cenário e máquina do tempo da sala final (fundo da cena SALA_FINAL) --
+# maquina_do_tempo_v4.png é o MESMO asset usado em
+# Pygame/Fase_2/fase2/assets/maquina_do_tempo_v4.png (copiado pra esta
+# pasta, já que cada fase deste repositório mantém seus próprios assets).
+CENA_FINAL_PATH = caminho_asset("assets/imagens/cena_final.png")
+MAQUINA_TEMPO_PATH = caminho_asset("assets/imagens/maquina_do_tempo_v4.png")
 
 # Avatar do jogador -- mesmos 6 frames (3 por gênero) e mesma escala usados
 # em Pygame/Fase_2/fase2/fase2.py (arquivos copiados de lá pra
@@ -313,6 +379,34 @@ class Jogador:
         if dx < 0:
             self.imagem = pygame.transform.flip(self.imagem, True, False)
 
+    def mover_para(self, alvo, floor_rect):
+        """Anda sozinho em direção a um ponto fixo (`alvo`), ignorando o
+        teclado -- mesma lógica/animação de fase2.Jogador.mover_para(),
+        usada só na caminhada automática até a máquina do tempo, na sala
+        final (ver Jogo.executar()). Devolve True quando chega perto o
+        bastante do alvo (ou desiste, se bater num obstáculo e não
+        conseguir se mexer mais)."""
+        direcao = pygame.Vector2(alvo) - self.pos
+        dist = direcao.length()
+        chegou = dist <= CLICK_ARRIVE_DIST
+
+        if not chegou:
+            passo = min(self.VELOCIDADE, dist)
+            nova_pos = _tentar_mover(self.pos, direcao.normalize() * passo, floor_rect)
+            if nova_pos == self.pos:
+                # Bateu num obstáculo e não conseguiu se mexer nem um
+                # pouco -- desiste de perseguir esse alvo em vez de
+                # tentar pra sempre no mesmo lugar (mesma regra da Fase 2).
+                chegou = True
+            else:
+                self.pos = nova_pos
+
+        self._atualizar_sprite(not chegou)
+        if not chegou and direcao.x < 0:
+            self.imagem = pygame.transform.flip(self.imagem, True, False)
+
+        return chegou
+
     def _atualizar_sprite(self, esta_andando):
         if not esta_andando:
             self.imagem = self.frame_parado
@@ -409,20 +503,83 @@ LIMITE_DICAS_SYSTEM_AI = 3
 
 
 # =====================================================================
+# 4B. SEQUÊNCIA DE VITÓRIA (fade + balão de parabéns) -- mesma lógica de
+#     Pygame/Fase_2/fase2/fase2.py (_fade_transition/
+#     _mostrar_mensagem_vitoria), adaptada: esta fase desenha direto na
+#     janela real (sem o passo extra de escalar uma tela virtual pra
+#     janela, que a Fase 2 tem porque ela roda numa resolução virtual
+#     diferente da janela) e o balão usa a paleta CRT âmbar desta fase
+#     (estilo_crt.py) em vez do dourado/creme da Fase 2.
+# =====================================================================
+def _transicao_fade(tela, relogio, antes, depois, duracao=FADE_DURATION_SECONDS):
+    """Fade simples entre dois quadros já prontos: escurece `antes` até
+    a cor de fundo CRT, depois clareia até `depois` -- mesma lógica de
+    fase2._fade_transition. `antes`/`depois` já vêm PRONTOS (desenhados
+    inteiros) de quem chamou; esta função só faz a transição visual
+    entre os dois. Só processa QUIT, pra não travar a janela achando
+    que o jogo travou."""
+    passos = max(1, int(duracao * FPS))
+    for origem, escurecendo in ((antes, True), (depois, False)):
+        for i in range(passos):
+            for evento in pygame.event.get():
+                if evento.type == pygame.QUIT:
+                    pygame.quit()
+                    raise SystemExit
+            relogio.tick(FPS)
+
+            tela.blit(origem, (0, 0))
+            progresso = (i + 1) / passos
+            alpha = int(255 * progresso) if escurecendo else int(255 * (1 - progresso))
+            veu = pygame.Surface(tela.get_size())
+            veu.fill(COR_FUNDO_CRT)
+            veu.set_alpha(alpha)
+            tela.blit(veu, (0, 0))
+
+            pygame.display.flip()
+
+
+def _mostrar_mensagem_vitoria(tela, relogio, cena_base, mensagem, duracao):
+    """Mostra `mensagem` num balão estilo CRT âmbar (mesma paleta do
+    puzzle/SYSTEM_AI -- ver estilo_crt.py), sobreposto a `cena_base` (uma
+    Surface já pronta, redesenhada em todo frame por baixo do balão) por
+    `duracao` segundos -- mesmo espírito de
+    fase2._mostrar_mensagem_vitoria, só com a estética desta fase em vez
+    do dourado/creme da Fase 2."""
+    fonte_balao = pygame.font.SysFont("consolas", 26, bold=True)
+    balao_rect = pygame.Rect(0, 0, 560, 100)
+    balao_rect.center = (tela.get_width() // 2, tela.get_height() // 2)
+
+    passos = max(1, int(duracao * FPS))
+    for _ in range(passos):
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                raise SystemExit
+        relogio.tick(FPS)
+
+        tela.blit(cena_base, (0, 0))
+        pygame.draw.rect(tela, COR_FUNDO_CRT, balao_rect)
+        pygame.draw.rect(tela, COR_AMBAR, balao_rect, width=3)
+        texto_surf = render_texto_glow(fonte_balao, mensagem, COR_AMBAR_BRILHO)
+        tela.blit(texto_surf, texto_surf.get_rect(center=balao_rect.center))
+        desenhar_scanlines(tela, rect=balao_rect)
+
+        pygame.display.flip()
+
+
+# =====================================================================
 # 5. CLASSE PRINCIPAL DO JOGO
 # =====================================================================
 class Jogo:
     """Controla o laço principal (game loop) e a máquina de estados da
     fase. Estados: QUARTO (cena principal, jogador anda e clica no
-    computador), TERMINAL e DESKTOP -- o suficiente pra rodar o esqueleto
-    e testar a janela abrindo."""
+    computador), TERMINAL (o puzzle toma a tela) e SALA_FINAL (depois de
+    resolvido: sala separada com a máquina do tempo, mesmo espírito da
+    sala da máquina do tempo da Fase 2)."""
 
     QUARTO = "quarto"
     TERMINAL = "terminal"
-    DESKTOP = "desktop"
-    # TODO: estados extras conforme o puzzle for definido (ex: um
-    # estado "MONTANDO_DESKTOP" enquanto o jogador resolve, ou um MENU
-    # inicial como a Fase 4 tem).
+    SALA_FINAL = "sala_final"
 
     def __init__(self, character_image=None, character_name="Jogador", genero="m"):
         # character_image/character_name/genero seguem o mesmo formato que
@@ -442,6 +599,11 @@ class Jogo:
 
         # --- Imagens (com placeholder automático se ainda não existirem) ---
         self.img_fundo_quarto = carregar_imagem(CENARIO_QUARTO_PATH, (LARGURA, ALTURA))
+
+        # --- Sala final (SALA_FINAL) -- fundo + máquina do tempo ---
+        self.img_fundo_sala_final = carregar_imagem(CENA_FINAL_PATH, (LARGURA, ALTURA))
+        self.maquina_tempo_sprite = carregar_avatar_altura(MAQUINA_TEMPO_PATH, MAQUINA_TEMPO_ALTURA)
+        self.maquina_tempo_rect = self.maquina_tempo_sprite.get_rect(center=MAQUINA_TEMPO_POS)
 
         # --- Avatar do jogador (mesmos frames/escala da Fase 2) ---
         self.character_name = character_name
@@ -487,6 +649,11 @@ class Jogo:
 
         # --- Estado inicial: a fase sempre começa na cena do quarto ---
         self.estado = Jogo.QUARTO
+
+        # --- Sequência de vitória (sala final) -- só mudam de valor
+        # dentro de _iniciar_sequencia_de_vitoria()/executar(), ver lá.
+        self.andando_ate_maquina = False  # caminhada automática até a máquina, sem controle do jogador
+        self.chegou_na_maquina = False    # libera o controle e a dica de clicar na máquina
 
         # --- Estado do puzzle do terminal (persiste entre aberturas) ---
         # Criado uma única vez aqui, mesmo padrão do ada_chat/estado_puzzle
@@ -601,10 +768,18 @@ class Jogo:
                         self.npc_chat.tratar_evento(evento)
                     elif evento.key == pygame.K_ESCAPE:
                         rodando = False
-                    elif evento.key == pygame.K_e and not self.npc_chat.limite_atingido():
+                    elif (
+                        evento.key == pygame.K_e
+                        and self.estado != Jogo.SALA_FINAL
+                        and not self.npc_chat.limite_atingido()
+                    ):
                         # TODO: sem checar distância ainda (ver
                         # perto_do_jogador em npc_chatbot.py) -- por
-                        # enquanto E sempre abre o SYSTEM_AI.
+                        # enquanto E sempre abre o SYSTEM_AI. self.estado
+                        # != SALA_FINAL: o SYSTEM_AI é do computador do
+                        # quarto, não faz sentido ele "seguir" o jogador
+                        # até a sala da máquina do tempo (mesma regra da
+                        # Ada não aparecer na sala da máquina, na Fase 2).
                         self.npc_chat.abrir_dialogo()
 
                 elif (
@@ -624,18 +799,47 @@ class Jogo:
                         self.tela, self.relogio, self.npc_chat,
                         self.estado_puzzle_terminal, LARGURA, ALTURA,
                     )
-                    # TODO: quando resolveu, a fase deveria levar o
-                    # jogador pra sala da máquina do tempo (como a Fase 2
-                    # faz -- ver fase2._fade_transition); por enquanto só
-                    # troca pro placeholder de DESKTOP.
-                    self.estado = Jogo.DESKTOP if resolveu else Jogo.QUARTO
+                    if resolveu:
+                        self._iniciar_sequencia_de_vitoria()
+                    else:
+                        self.estado = Jogo.QUARTO
 
-            # Movimento do jogador só faz sentido na cena do quarto, e só
-            # quando nenhuma caixa de diálogo está roubando o teclado
-            # (mesma regra da Fase 2).
+                elif (
+                    evento.type == pygame.MOUSEBUTTONDOWN
+                    and evento.button == 1
+                    and self.estado == Jogo.SALA_FINAL
+                    and self.chegou_na_maquina
+                    and self.maquina_tempo_rect.collidepoint(evento.pos)
+                ):
+                    # Clicou na máquina do tempo depois de já ter chegado
+                    # perto dela andando sozinho: conclui a fase.
+                    # TODO: quando a Fase 10 existir (a ser combinado com
+                    # o grupo), conectar essa saída a ela pelo menu (ver
+                    # Pygame/menu/jogo.py e como fase2.run() devolve
+                    # True/False pro menu decidir o que vem a seguir) --
+                    # por enquanto só encerra a fase, igual ao ESC.
+                    rodando = False
+
+            # Movimento do jogador: WASD/setas na cena do quarto, e
+            # também na sala final DEPOIS que a caminhada automática até
+            # a máquina termina (mesmos controles/regra da Fase 2) --
+            # sempre que nenhuma caixa de diálogo está roubando o
+            # teclado.
             if self.estado == Jogo.QUARTO and not self.npc_chat.dialogo_aberto:
                 teclas = pygame.key.get_pressed()
                 self.jogador.mover(teclas, FLOOR_RECT)
+            elif self.estado == Jogo.SALA_FINAL:
+                if self.andando_ate_maquina:
+                    # Caminhada automática (ignora o teclado do jogador)
+                    # até bem em frente à máquina do tempo -- mesma lógica
+                    # de fase2.Jogador.mover_para(), usada na Fase 2 pra
+                    # ir até a máquina do tempo dela.
+                    if self.jogador.mover_para(MAQUINA_TEMPO_CHEGADA_POS, SALA_FINAL_FLOOR_RECT):
+                        self.andando_ate_maquina = False
+                        self.chegou_na_maquina = True
+                elif not self.npc_chat.dialogo_aberto:
+                    teclas = pygame.key.get_pressed()
+                    self.jogador.mover(teclas, SALA_FINAL_FLOOR_RECT)
 
             # SYSTEM_AI precisa saber em qual etapa do puzzle o jogador
             # está agora mesmo perguntando daqui do quarto (antes de
@@ -649,13 +853,18 @@ class Jogo:
                 self._desenhar_quarto()
             elif self.estado == Jogo.TERMINAL:
                 self._desenhar_terminal()
-            elif self.estado == Jogo.DESKTOP:
-                self._desenhar_desktop()
+            elif self.estado == Jogo.SALA_FINAL:
+                self._desenhar_sala_final()
 
-            self.npc_chat.desenhar(self.tela, self.fonte_texto, self.fonte_pequena, LARGURA, ALTURA)
-            if not self.npc_chat.dialogo_aberto:
-                self.npc_chat.desenhar_dica_interacao(self.tela, self.fonte_pequena)
-            self.npc_chat.desenhar_contador_dicas(self.tela, self.fonte_pequena)
+            # SYSTEM_AI só existe no quarto/computador -- na sala final
+            # (depois da vitória) ele não é desenhado nem interativo,
+            # mesma regra do retrato da Ada não aparecer na sala da
+            # máquina do tempo, na Fase 2.
+            if self.estado != Jogo.SALA_FINAL:
+                self.npc_chat.desenhar(self.tela, self.fonte_texto, self.fonte_pequena, LARGURA, ALTURA)
+                if not self.npc_chat.dialogo_aberto:
+                    self.npc_chat.desenhar_dica_interacao(self.tela, self.fonte_pequena)
+                self.npc_chat.desenhar_contador_dicas(self.tela, self.fonte_pequena)
 
             pygame.display.flip()
             self.relogio.tick(FPS)
@@ -698,22 +907,75 @@ class Jogo:
         self.tela.blit(render, (40, ALTURA - 60))
 
     # -----------------------------------------------------------------
-    # DESENHO: DESKTOP (tela final, quando o puzzle for resolvido)
+    # SEQUÊNCIA DE VITÓRIA: fade pro desktop reconstruído -> sala final
+    # (mesma lógica de fase2.run(), no bloco logo após
+    # babbage_lovelace.run() devolver True)
     # -----------------------------------------------------------------
-    def _desenhar_desktop(self):
-        """Desktop gráfico estilizado (retrô, anos 80) -- mostrado
-        depois que o puzzle é resolvido e a tela "acende" (a transição
-        em si acontece dentro de puzzle_terminal.run(), ver
-        _animar_tela_acendendo lá). Reaproveita a MESMA função de
-        desenho da transição (puzzle_terminal.desenhar_desktop_retro),
-        pra o visual continuar idêntico depois que a animação termina.
-        """
-        puzzle_terminal.desenhar_desktop_retro(self.tela, LARGURA, ALTURA)
+    def _iniciar_sequencia_de_vitoria(self):
+        """Chamada assim que puzzle_terminal.run() devolve True (puzzle
+        resolvido): tira uma "foto" do último quadro que ele deixou em
+        self.tela (o desktop gráfico já reconstruído, aceso pela própria
+        animação de puzzle_terminal._animar_tela_acendendo) e faz a
+        transição pra sala final, só com a máquina do tempo -- mesmo
+        fluxo de fase2.run(): fade (_transicao_fade) + balão de parabéns
+        (_mostrar_mensagem_vitoria) + início da caminhada automática até
+        a máquina (o jogador só recupera o controle ao chegar perto
+        dela, ver o bloco de movimento em executar())."""
+        antes = self.tela.copy()
 
-        # TODO: a fase deveria seguir pra sala da máquina do tempo a
-        # partir daqui (como a Fase 2 faz -- ver fase2._fade_transition
-        # em Pygame/Fase_2/fase2/fase2.py); por enquanto ela só fica
-        # parada nesse estado.
+        # Personagem "entrando pela porta": mesmo frame parado (sem
+        # animação de caminhada) usado por fase2._draw_player no quadro
+        # "depois" da transição dela.
+        self.jogador.pos = pygame.Vector2(SALA_FINAL_ENTRY_POS)
+        self.jogador.imagem = self.jogador.frame_parado
+        self.jogador.indice_animacao = 0
+
+        depois = pygame.Surface((LARGURA, ALTURA))
+        if self.img_fundo_sala_final:
+            depois.blit(self.img_fundo_sala_final, (0, 0))
+        else:
+            depois.fill(PRETO)
+        depois.blit(self.maquina_tempo_sprite, self.maquina_tempo_rect)
+        self.jogador.desenhar(depois)
+        nome_render = self.fonte_pequena.render(self.character_name, True, BRANCO)
+        depois.blit(nome_render, nome_render.get_rect(
+            midtop=(int(self.jogador.pos.x), int(self.jogador.pos.y) + 4)
+        ))
+
+        _transicao_fade(self.tela, self.relogio, antes, depois)
+        _mostrar_mensagem_vitoria(self.tela, self.relogio, depois, MENSAGEM_VITORIA, MENSAGEM_VITORIA_SEGUNDOS)
+
+        self.estado = Jogo.SALA_FINAL
+        self.andando_ate_maquina = True
+        self.chegou_na_maquina = False
+
+    # -----------------------------------------------------------------
+    # DESENHO: SALA_FINAL (sala separada com a máquina do tempo, depois
+    # do puzzle resolvido -- mesmo espírito da sala da máquina do tempo
+    # da Fase 2)
+    # -----------------------------------------------------------------
+    def _desenhar_sala_final(self):
+        """Fundo da sala final + máquina do tempo + o personagem (que
+        chegou pela esquerda e anda sozinho até perto dela, ver
+        Jogo.executar()). Ao chegar, mostra embaixo a dica pra clicar na
+        máquina (MACHINE_HINT), com o mesmo estilo âmbar/CRT do resto da
+        fase."""
+        if self.img_fundo_sala_final:
+            self.tela.blit(self.img_fundo_sala_final, (0, 0))
+        else:
+            self.tela.fill(PRETO)
+
+        self.tela.blit(self.maquina_tempo_sprite, self.maquina_tempo_rect)
+
+        self.jogador.desenhar(self.tela)
+        nome_render = self.fonte_pequena.render(self.character_name, True, BRANCO)
+        self.tela.blit(nome_render, nome_render.get_rect(
+            midtop=(int(self.jogador.pos.x), int(self.jogador.pos.y) + 4)
+        ))
+
+        if self.chegou_na_maquina:
+            dica_surf = render_texto_glow(self.fonte_pequena, MACHINE_HINT, COR_AMBAR)
+            self.tela.blit(dica_surf, dica_surf.get_rect(midbottom=(LARGURA // 2, ALTURA - 8)))
 
 
 # =====================================================================
