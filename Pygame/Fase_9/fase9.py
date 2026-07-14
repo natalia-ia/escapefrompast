@@ -49,13 +49,14 @@ Execução:   python fase9.py
 =====================================================================
 """
 
+import math
 import os
 
 import pygame
 
 from npc_chatbot import NPCChatbot
 import puzzle_terminal
-from estilo_crt import COR_FUNDO_CRT, COR_AMBAR, COR_AMBAR_BRILHO, render_texto_glow, desenhar_scanlines
+from estilo_crt import COR_FUNDO_CRT, COR_AMBAR, COR_AMBAR_DIM, COR_AMBAR_BRILHO, render_texto_glow, desenhar_scanlines
 import audio_fase9
 import config_fase9
 
@@ -182,6 +183,14 @@ MENSAGEM_VITORIA = "Você concluiu, parabéns!"
 MENSAGEM_VITORIA_SEGUNDOS = 2.0  # mesmo valor de fase2.MENSAGEM_VITORIA_SEGUNDOS
 MACHINE_HINT = "Entre na máquina do tempo para ir para a próxima fase!"
 FADE_DURATION_SECONDS = 0.35  # mesmo valor de fase2.FADE_DURATION_SECONDS
+
+# Segunda verificação do código de ativação, agora na sala da máquina --
+# o mesmo código do desktop_final (XK47), só que INVERTIDO, pra exigir
+# que o jogador perceba a inversão em vez de só copiar o que já achou.
+CODIGO_MAQUINA_CORRETO = "74KX"
+INSTRUCAO_CODIGO_MAQUINA = "Digite o código de ativação da máquina (dica: inverta a sequência):"
+MSG_CODIGO_MAQUINA_ERRO = "Código inválido."
+MSG_CODIGO_MAQUINA_OK = "Código aceito! A máquina está pronta -- clique nela para entrar."
 
 
 # =====================================================================
@@ -546,15 +555,51 @@ def _transicao_fade(tela, relogio, antes, depois, duracao=FADE_DURATION_SECONDS)
             pygame.display.flip()
 
 
-def _mostrar_mensagem_vitoria(tela, relogio, cena_base, mensagem, duracao):
+def _pontos_estrela(centro, raio_externo, raio_interno):
+    """Devolve os 10 vértices (alternando raio externo/interno, a cada
+    36°) de uma estrela de 5 pontas centrada em `centro`, com uma ponta
+    voltada pra cima -- usado por _desenhar_estrela. Mesma fórmula de
+    fase2._pontos_estrela, copiada aqui (não importada) pra este módulo
+    não depender de fase2.py -- mesmo espírito autocontido do resto do
+    repositório (audio_fase9.py/audio_fase2.py, etc)."""
+    pontos = []
+    angulo_inicial = -math.pi / 2  # começa apontando pra cima
+    for i in range(10):
+        angulo = angulo_inicial + i * math.pi / 5
+        raio = raio_externo if i % 2 == 0 else raio_interno
+        pontos.append((centro[0] + raio * math.cos(angulo), centro[1] + raio * math.sin(angulo)))
+    return pontos
+
+
+def _desenhar_estrela(surface, centro, raio, conquistada):
+    """Desenha uma estrela de 5 pontas em `centro`: preenchida em âmbar
+    brilhante se `conquistada`, ou só o contorno (vazia) em âmbar bem
+    apagado (COR_AMBAR_DIM) se não -- mesma paleta CRT do resto da fase."""
+    pontos = _pontos_estrela(centro, raio, raio * 0.42)
+    if conquistada:
+        pygame.draw.polygon(surface, COR_AMBAR_BRILHO, pontos)
+        pygame.draw.polygon(surface, COR_AMBAR, pontos, width=2)
+    else:
+        pygame.draw.polygon(surface, COR_AMBAR_DIM, pontos, width=2)
+
+
+def _mostrar_mensagem_vitoria(tela, relogio, cena_base, mensagem, duracao, estrelas=None, tempo_formatado=None):
     """Mostra `mensagem` num balão estilo CRT âmbar (mesma paleta do
     puzzle/SYSTEM_AI -- ver estilo_crt.py), sobreposto a `cena_base` (uma
     Surface já pronta, redesenhada em todo frame por baixo do balão) por
     `duracao` segundos -- mesmo espírito de
     fase2._mostrar_mensagem_vitoria, só com a estética desta fase em vez
-    do dourado/creme da Fase 2."""
+    do dourado/creme da Fase 2.
+
+    `estrelas` (1-3) e `tempo_formatado` ("MM:SS") são opcionais -- quando
+    informados (ver a chamada em _iniciar_sequencia_de_vitoria, com o
+    resultado de puzzle_terminal.EstadoPuzzleTerminal), o balão cresce
+    pra caber a fileira de 3 estrelas e o tempo levado, embaixo da
+    mensagem."""
     fonte_balao = pygame.font.SysFont("consolas", 26, bold=True)
-    balao_rect = pygame.Rect(0, 0, 560, 100)
+    fonte_tempo = pygame.font.SysFont("consolas", 18, bold=True)
+    balao_altura = 100 if estrelas is None else 190
+    balao_rect = pygame.Rect(0, 0, 560, balao_altura)
     balao_rect.center = (tela.get_width() // 2, tela.get_height() // 2)
 
     passos = max(1, int(duracao * FPS))
@@ -568,8 +613,22 @@ def _mostrar_mensagem_vitoria(tela, relogio, cena_base, mensagem, duracao):
         tela.blit(cena_base, (0, 0))
         pygame.draw.rect(tela, COR_FUNDO_CRT, balao_rect)
         pygame.draw.rect(tela, COR_AMBAR, balao_rect, width=3)
+
+        texto_y = balao_rect.top + 30 if estrelas is not None else balao_rect.centery
         texto_surf = render_texto_glow(fonte_balao, mensagem, COR_AMBAR_BRILHO)
-        tela.blit(texto_surf, texto_surf.get_rect(center=balao_rect.center))
+        tela.blit(texto_surf, texto_surf.get_rect(center=(balao_rect.centerx, texto_y)))
+
+        if estrelas is not None:
+            raio_estrela = 20
+            espaco_estrela = 56
+            estrelas_y = balao_rect.top + 100
+            for i in range(3):
+                centro_x = balao_rect.centerx + (i - 1) * espaco_estrela
+                _desenhar_estrela(tela, (centro_x, estrelas_y), raio_estrela, conquistada=(i < estrelas))
+            if tempo_formatado is not None:
+                tempo_surf = render_texto_glow(fonte_tempo, f"Tempo: {tempo_formatado}", COR_AMBAR)
+                tela.blit(tempo_surf, tempo_surf.get_rect(center=(balao_rect.centerx, balao_rect.bottom - 26)))
+
         desenhar_scanlines(tela, rect=balao_rect)
 
         pygame.display.flip()
@@ -666,7 +725,16 @@ class Jogo:
         # --- Sequência de vitória (sala final) -- só mudam de valor
         # dentro de _iniciar_sequencia_de_vitoria()/executar(), ver lá.
         self.andando_ate_maquina = False  # caminhada automática até a máquina, sem controle do jogador
-        self.chegou_na_maquina = False    # libera o controle e a dica de clicar na máquina
+        self.chegou_na_maquina = False    # libera o controle e o painel do código da máquina
+
+        # Segunda verificação do código (74KX, o código do desktop
+        # invertido) -- só depois de codigo_maquina_liberado=True o
+        # clique na máquina passa a encerrar a fase (ver o tratamento de
+        # MOUSEBUTTONDOWN em executar() e _desenhar_painel_codigo_maquina).
+        self.codigo_maquina_liberado = False
+        self.codigo_maquina_digitado = ""
+        self.codigo_maquina_feedback = ""
+        self.codigo_maquina_feedback_ok = None
 
         # --- Estado do puzzle do terminal (persiste entre aberturas) ---
         # Criado uma única vez aqui, mesmo padrão do ada_chat/estado_puzzle
@@ -794,6 +862,22 @@ class Jogo:
                         # até a sala da máquina do tempo (mesma regra da
                         # Ada não aparecer na sala da máquina, na Fase 2).
                         self.npc_chat.abrir_dialogo()
+                    elif (
+                        self.estado == Jogo.SALA_FINAL
+                        and self.chegou_na_maquina
+                        and not self.codigo_maquina_liberado
+                    ):
+                        # Campo de texto do painel da máquina (ver
+                        # _desenhar_painel_codigo_maquina) -- mesmo
+                        # padrão de digitação de desktop_final._tentar_
+                        # codigo (BACKSPACE apaga, ENTER confere,
+                        # qualquer caractere imprimível é adicionado).
+                        if evento.key == pygame.K_RETURN:
+                            self._tentar_codigo_maquina()
+                        elif evento.key == pygame.K_BACKSPACE:
+                            self.codigo_maquina_digitado = self.codigo_maquina_digitado[:-1]
+                        elif evento.unicode.isprintable() and len(self.codigo_maquina_digitado) < 8:
+                            self.codigo_maquina_digitado += evento.unicode.upper()
 
                 elif (
                     evento.type == pygame.MOUSEBUTTONDOWN
@@ -845,10 +929,14 @@ class Jogo:
                     and evento.button == 1
                     and self.estado == Jogo.SALA_FINAL
                     and self.chegou_na_maquina
+                    and self.codigo_maquina_liberado
                     and self.maquina_tempo_rect.collidepoint(evento.pos)
                 ):
                     # Clicou na máquina do tempo depois de já ter chegado
-                    # perto dela andando sozinho: conclui a fase.
+                    # perto dela andando sozinho E já ter digitado o
+                    # código certo no painel (74KX -- ver
+                    # codigo_maquina_liberado/_tentar_codigo_maquina):
+                    # conclui a fase.
                     # TODO: quando a Fase 10 existir (a ser combinado com
                     # o grupo), conectar essa saída a ela pelo menu (ver
                     # Pygame/menu/jogo.py e como fase2.run() devolve
@@ -985,11 +1073,32 @@ class Jogo:
         ))
 
         _transicao_fade(self.tela, self.relogio, antes, depois)
-        _mostrar_mensagem_vitoria(self.tela, self.relogio, depois, MENSAGEM_VITORIA, MENSAGEM_VITORIA_SEGUNDOS)
+        _mostrar_mensagem_vitoria(
+            self.tela, self.relogio, depois, MENSAGEM_VITORIA, MENSAGEM_VITORIA_SEGUNDOS,
+            estrelas=self.estado_puzzle_terminal.estrelas_conquistadas,
+            tempo_formatado=self.estado_puzzle_terminal.tempo_formatado,
+        )
 
         self.estado = Jogo.SALA_FINAL
         self.andando_ate_maquina = True
         self.chegou_na_maquina = False
+        self.codigo_maquina_liberado = False
+        self.codigo_maquina_digitado = ""
+        self.codigo_maquina_feedback = ""
+        self.codigo_maquina_feedback_ok = None
+
+    def _tentar_codigo_maquina(self):
+        """Confere o texto digitado no painel da máquina contra
+        CODIGO_MAQUINA_CORRETO (74KX) -- mesmo padrão de
+        desktop_final._tentar_codigo. Só libera o clique na máquina
+        (ver o MOUSEBUTTONDOWN em executar()) quando acerta."""
+        tentativa = self.codigo_maquina_digitado.strip().upper()
+        acertou = tentativa == CODIGO_MAQUINA_CORRETO
+        self.codigo_maquina_feedback = MSG_CODIGO_MAQUINA_OK if acertou else MSG_CODIGO_MAQUINA_ERRO
+        self.codigo_maquina_feedback_ok = acertou
+        if acertou:
+            self.codigo_maquina_liberado = True
+        return acertou
 
     # -----------------------------------------------------------------
     # DESENHO: SALA_FINAL (sala separada com a máquina do tempo, depois
@@ -1015,9 +1124,53 @@ class Jogo:
             midtop=(int(self.jogador.pos.x), int(self.jogador.pos.y) + 4)
         ))
 
-        if self.chegou_na_maquina:
+        if self.chegou_na_maquina and not self.codigo_maquina_liberado:
+            self._desenhar_painel_codigo_maquina()
+        elif self.chegou_na_maquina:
             dica_surf = render_texto_glow(self.fonte_pequena, MACHINE_HINT, COR_AMBAR)
             self.tela.blit(dica_surf, dica_surf.get_rect(midbottom=(LARGURA // 2, ALTURA - 8)))
+
+    def _desenhar_painel_codigo_maquina(self):
+        """Painel CRT âmbar (mesma paleta/estilo de _mostrar_mensagem_
+        vitoria -- COR_FUNDO_CRT/COR_AMBAR, consistente com o resto da
+        fase) pedindo o código de ativação (74KX) antes de liberar o
+        clique na máquina. Substitui a MACHINE_HINT até o jogador
+        acertar (ver _tentar_codigo_maquina)."""
+        fonte_instr = pygame.font.SysFont("consolas", 15, bold=True)
+        fonte_campo = pygame.font.SysFont("consolas", 22, bold=True)
+        fonte_fb = pygame.font.SysFont("consolas", 14, bold=True)
+
+        painel_rect = pygame.Rect(0, 0, 480, 130)
+        painel_rect.midbottom = (LARGURA // 2, ALTURA - 8)
+
+        pygame.draw.rect(self.tela, COR_FUNDO_CRT, painel_rect)
+        pygame.draw.rect(self.tela, COR_AMBAR, painel_rect, width=3)
+
+        instr_surf = render_texto_glow(fonte_instr, INSTRUCAO_CODIGO_MAQUINA, COR_AMBAR)
+        self.tela.blit(instr_surf, instr_surf.get_rect(midtop=(painel_rect.centerx, painel_rect.top + 10)))
+
+        campo_rect = pygame.Rect(0, 0, 200, 34)
+        campo_rect.midtop = (painel_rect.centerx, painel_rect.top + 40)
+        pygame.draw.rect(self.tela, PRETO, campo_rect)
+        pygame.draw.rect(self.tela, COR_AMBAR, campo_rect, width=2)
+        texto_surf = fonte_campo.render(self.codigo_maquina_digitado, True, COR_AMBAR_BRILHO)
+        self.tela.blit(texto_surf, texto_surf.get_rect(midleft=(campo_rect.left + 8, campo_rect.centery)))
+        if pygame.time.get_ticks() % 1000 < 500:
+            cursor_x = campo_rect.left + 8 + texto_surf.get_width() + 2
+            pygame.draw.line(
+                self.tela, COR_AMBAR_BRILHO,
+                (cursor_x, campo_rect.top + 6), (cursor_x, campo_rect.bottom - 6), 2,
+            )
+
+        if self.codigo_maquina_feedback:
+            cor_fb = COR_AMBAR_BRILHO if self.codigo_maquina_feedback_ok else (200, 60, 40)
+            fb_surf = fonte_fb.render(self.codigo_maquina_feedback, True, cor_fb)
+            self.tela.blit(fb_surf, fb_surf.get_rect(midtop=(painel_rect.centerx, campo_rect.bottom + 8)))
+        else:
+            dica_surf = fonte_fb.render("(pressione ENTER para confirmar)", True, (150, 110, 40))
+            self.tela.blit(dica_surf, dica_surf.get_rect(midtop=(painel_rect.centerx, campo_rect.bottom + 8)))
+
+        desenhar_scanlines(self.tela, rect=painel_rect)
 
 
 # =====================================================================

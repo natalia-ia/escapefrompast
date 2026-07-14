@@ -58,6 +58,14 @@ ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 # outras fases poderem ler (e escrever suas próprias chaves) no mesmo
 # arquivo mais tarde -- por isso o formato é um dicionário por fase, em vez
 # de um valor único.
+#
+# TODO (pra quem conectar o mapa de fases do menu depois): menu/jogo.py
+# ainda não lê esse arquivo. Cada chave (ex: "fase_2") guarda
+# {"estrelas": 1-3, "completo": true, "tempo": "MM:SS"} -- "tempo" é
+# quanto o jogador LEVOU pra resolver o puzzle (não o tempo que sobrou).
+# Fase_9 grava exatamente o mesmo formato na chave "fase_9" (ver
+# Pygame/Fase_9/puzzle_terminal.py), então o menu pode ler as duas com o
+# mesmo código.
 _PYGAME_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 PROGRESSO_PATH = os.path.join(_PYGAME_DIR, "progresso.json")
 PROGRESSO_CHAVE_FASE = "fase_2"
@@ -77,14 +85,22 @@ def _carregar_progresso():
         return {}
 
 
-def _salvar_progresso(estrelas):
-    """Grava `estrelas` (0 a 3) na chave PROGRESSO_CHAVE_FASE do
+def _salvar_progresso(estrelas, tempo_formatado):
+    """Grava `estrelas` (1 a 3, ver _calcular_estrelas) e `tempo_formatado`
+    ("MM:SS", o tempo que o jogador LEVOU) na chave PROGRESSO_CHAVE_FASE do
     progresso.json compartilhado, preservando as chaves de outras fases que
     já estiverem lá (lê tudo, atualiza só a nossa chave, escreve tudo de
     volta) -- assim colegas trabalhando em outras fases podem usar o mesmo
-    arquivo sem um sobrescrever o progresso do outro."""
+    arquivo sem um sobrescrever o progresso do outro.
+
+    Nunca sobrescreve um resultado MELHOR já salvo: se o jogador já tinha
+    completado essa fase antes com estrelas >= as de agora, não mexe em
+    nada (mantém o recorde antigo, inclusive o tempo dele)."""
     progresso = _carregar_progresso()
-    progresso[PROGRESSO_CHAVE_FASE] = {"estrelas": estrelas, "completo": True}
+    anterior = progresso.get(PROGRESSO_CHAVE_FASE)
+    if anterior is not None and anterior.get("estrelas", 0) >= estrelas:
+        return
+    progresso[PROGRESSO_CHAVE_FASE] = {"estrelas": estrelas, "completo": True, "tempo": tempo_formatado}
     with open(PROGRESSO_PATH, "w", encoding="utf-8") as arquivo:
         json.dump(progresso, arquivo, indent=2, ensure_ascii=False)
 
@@ -111,7 +127,36 @@ RESULT_NUMBER = "87"  # placeholder do número de Bernoulli "calculado"
 # ---------------------------------------------------------------------------
 TEMPO_LIMITE_SEGUNDOS = 60  # 1 minuto por tentativa
 TEMPO_ALERTA_SEGUNDOS = 30  # últimos 30s: cronômetro fica vermelho
-ESTRELAS_INICIAIS = 3
+
+# ---------------------------------------------------------------------------
+# Sistema de estrelas -- baseado no TEMPO RESTANTE no timer no instante em
+# que o jogador resolve o puzzle (não em quantas vezes ele errou/reiniciou
+# antes disso). Mesmos limiares usados na Fase 9 (ver
+# Pygame/Fase_9/puzzle_terminal.py), pra estrela significar a mesma coisa
+# nas duas fases. Ajuste aqui se quiser mudar os limiares.
+# ---------------------------------------------------------------------------
+ESTRELAS_3_TEMPO_MIN = 25  # >= 25s sobrando -> 3 estrelas
+ESTRELAS_2_TEMPO_MIN = 15  # 15 a 24s sobrando -> 2 estrelas
+# < 15s sobrando -> 1 estrela (ver _calcular_estrelas)
+
+
+def _calcular_estrelas(tempo_restante):
+    """Devolve 1, 2 ou 3 conforme `tempo_restante` (segundos ainda no
+    timer quando o jogador resolveu o puzzle) contra os limiares
+    ESTRELAS_3_TEMPO_MIN/ESTRELAS_2_TEMPO_MIN acima."""
+    if tempo_restante >= ESTRELAS_3_TEMPO_MIN:
+        return 3
+    if tempo_restante >= ESTRELAS_2_TEMPO_MIN:
+        return 2
+    return 1
+
+
+def _formatar_tempo(segundos):
+    """Formata `segundos` (float) como "MM:SS" -- usado tanto pro tempo
+    GASTO na vitória quanto pra qualquer outro cronômetro exibido."""
+    total = max(0, int(segundos))
+    return f"{total // 60:02d}:{total % 60:02d}"
+
 
 FALHA_TEXTO = (
     "Opa! O tempo acabou antes de você conseguir montar o programa de "
@@ -164,8 +209,8 @@ def atualizar_engrenagem(angulo_atual):
 
 class EstadoPuzzle:
     """Guarda o progresso do puzzle entre reaberturas da tela (fechar sem
-    resolver e reabrir continua a MESMA tentativa) e o número de estrelas
-    da fase inteira.
+    resolver e reabrir continua a MESMA tentativa) e o resultado (estrelas
+    + tempo) da resolução, uma vez que ela acontece.
 
     Criado uma única vez em fase2.py (mesmo padrão do `ada_chat`) e
     repassado por parâmetro pra run() -- assim, mesmo que o jogador feche o
@@ -175,23 +220,28 @@ class EstadoPuzzle:
     """
 
     def __init__(self):
-        self.estrelas = ESTRELAS_INICIAIS
+        # Só ganham valor no momento exato em que o puzzle é resolvido
+        # (ver o bloco "if solved" em run(), mais abaixo) -- fase2.py lê
+        # os dois pra desenhar a tela de vitória. Ficam fora de
+        # reiniciar() de propósito: "Tentar novamente" depois de uma
+        # derrota não deve apagar um resultado de uma vitória anterior
+        # (na prática nunca acontece dos dois ao mesmo tempo, já que
+        # resolver encerra o puzzle, mas é mais claro deixar assim).
+        self.estrelas_conquistadas = None
+        self.tempo_formatado = None
         self.reiniciar()
 
     def reiniciar(self):
         """Começa uma tentativa nova do zero: reembaralha os cartões e
-        reseta o cronômetro pra TEMPO_LIMITE_SEGUNDOS. NÃO mexe em
-        `self.estrelas` -- isso é só responsabilidade de `perder_estrela`,
-        chamado quando o jogador clica "Tentar novamente" depois de uma
-        derrota."""
+        reseta o cronômetro pra TEMPO_LIMITE_SEGUNDOS. Chamado na criação
+        do objeto e toda vez que o jogador clica "Tentar novamente"
+        depois de uma derrota (o tempo esgotado NÃO tira estrela -- ver o
+        comentário de ESTRELAS_3_TEMPO_MIN: a única coisa que importa pra
+        estrela é o tempo restante na tentativa que efetivamente resolve
+        o puzzle)."""
         self.shuffled = _shuffled_order()
         self.placed = []
         self.tempo_restante = float(TEMPO_LIMITE_SEGUNDOS)
-
-    def perder_estrela(self):
-        """Tira 1 estrela (chamado a cada "Tentar novamente" depois de uma
-        derrota) sem deixar o total ficar negativo."""
-        self.estrelas = max(0, self.estrelas - 1)
 
 
 def _quebrar_texto(texto, fonte, largura_maxima):
@@ -328,8 +378,9 @@ def run(screen, clock, ada_chat, estado):
                     ada_chat.tratar_evento_teclado(event)
                 elif derrotado and event.key == pygame.K_r:
                     # Atalho de teclado pro botão "Tentar novamente" --
-                    # mesma ação de clicar nele (ver mais abaixo).
-                    estado.perder_estrela()
+                    # mesma ação de clicar nele (ver mais abaixo). Não
+                    # tira estrela: a estrela final só depende do tempo
+                    # restante na tentativa que resolve o puzzle.
                     estado.reiniciar()
                     derrotado = False
                 elif event.key == pygame.K_ESCAPE and not solved:
@@ -363,7 +414,6 @@ def run(screen, clock, ada_chat, estado):
                 # clique -- os cartões/slots nem são desenhados aqui, então
                 # não faz sentido checar clique neles.
                 if retry_btn.clicked(mouse_pos, event):
-                    estado.perder_estrela()
                     estado.reiniciar()
                     derrotado = False
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and not solved and not ada_chat.aberta:
@@ -442,9 +492,17 @@ def run(screen, clock, ada_chat, estado):
             solve_timer += dt
             gear_angle = atualizar_engrenagem(gear_angle)
             if solve_timer >= SOLVE_HOLD_SECONDS:
-                # Salva o resultado final (estrelas) só aqui, no momento
-                # exato em que a fase é dada como concluída com sucesso.
-                _salvar_progresso(estado.estrelas)
+                # Calcula e salva o resultado final (estrelas + tempo) só
+                # aqui, no momento exato em que a fase é dada como
+                # concluída com sucesso. estado.tempo_restante já está
+                # "congelado" desde o instante em que solved virou True
+                # (o cronômetro só decrementa lá em cima quando "not
+                # solved"), então o valor aqui é exatamente o tempo que
+                # sobrava quando o jogador resolveu.
+                estado.estrelas_conquistadas = _calcular_estrelas(estado.tempo_restante)
+                tempo_gasto = TEMPO_LIMITE_SEGUNDOS - estado.tempo_restante
+                estado.tempo_formatado = _formatar_tempo(tempo_gasto)
+                _salvar_progresso(estado.estrelas_conquistadas, estado.tempo_formatado)
                 completed = True
                 running = False
 
