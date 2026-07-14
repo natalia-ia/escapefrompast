@@ -52,22 +52,57 @@ VOLUME_EFEITOS = 0.7        # um pouco mais alto que a música, pra os efeitos s
 CANAL_CLIQUE_ID = 1
 CANAL_VITORIA_ID = 2
 
+# Volume GERAL (0.0 a 1.0) -- multiplicador aplicado por CIMA de
+# VOLUME_MUSICA_FUNDO/VOLUME_EFEITOS, ajustado pelo painel de
+# configurações (ver config_fase2.abrir_painel_config()). 1.0 = volumes
+# originais de cima, sem nenhuma redução extra. Mesmo espírito de
+# audio_fase9.fator_volume_geral (Pygame/Fase_9/audio_fase9.py).
+fator_volume_geral = 1.0
+
+# Todo som carregado por carregar_som() entra aqui como (Sound,
+# volume_base) -- é o que permite reaplicar o volume de CADA som já
+# carregado quando o fator_volume_geral mudar (ver definir_volume_geral()),
+# em vez de só valer pros próximos sons a carregar.
+_sons_registrados = []
+
 
 def carregar_som(caminho, volume=VOLUME_EFEITOS):
     """Carrega um efeito sonoro (pygame.mixer.Sound) já no volume
-    informado -- devolve None se o arquivo não existir ou não puder ser
-    carregado (sem placa de som, mixer não inicializado etc.), pra quem
-    chama simplesmente não tocar nada em vez de travar o jogo (mesmo
-    espírito das funções de carregamento de imagem/fonte já usadas nesta
-    fase, que também devolvem algo "vazio" quando o asset falta)."""
+    informado (multiplicado pelo fator_volume_geral atual) -- devolve
+    None se o arquivo não existir ou não puder ser carregado (sem placa
+    de som, mixer não inicializado etc.), pra quem chama simplesmente
+    não tocar nada em vez de travar o jogo (mesmo espírito das funções
+    de carregamento de imagem/fonte já usadas nesta fase, que também
+    devolvem algo "vazio" quando o asset falta)."""
     if not (caminho and os.path.isfile(caminho)):
         return None
     try:
         som = pygame.mixer.Sound(caminho)
-        som.set_volume(volume)
+        som.set_volume(volume * fator_volume_geral)
+        _sons_registrados.append((som, volume))
         return som
     except pygame.error:
         return None
+
+
+def definir_volume_geral(novo_fator):
+    """Define o volume GERAL (0.0 a 1.0, sempre travado nesse
+    intervalo), aplicado de uma vez sobre a música de fundo E todos os
+    efeitos já carregados -- chamado pelo painel de configurações
+    (config_fase2.py) quando o jogador ajusta o volume. Reaplica NA HORA
+    em cada som já carregado (não só nos próximos), pra a mudança valer
+    em tempo real."""
+    global fator_volume_geral
+    fator_volume_geral = max(0.0, min(1.0, novo_fator))
+    try:
+        pygame.mixer.music.set_volume(VOLUME_MUSICA_FUNDO * fator_volume_geral)
+    except pygame.error:
+        pass
+    for som, volume_base in _sons_registrados:
+        try:
+            som.set_volume(volume_base * fator_volume_geral)
+        except pygame.error:
+            pass
 
 
 def _tocar_em_canal(canal_id, som):
@@ -110,6 +145,20 @@ def parar_vitoria():
         pass
 
 
+def parar_efeitos():
+    """Para TODOS os efeitos sonoros em TODOS os canais (pygame.mixer.
+    stop()) -- sem mexer na música de fundo. Chamado em toda transição
+    de cena dentro da fase (ex: puzzle resolvido -> sala da máquina do
+    tempo), como uma segunda camada de segurança além de parar_vitoria/
+    parar_som_do_canal específicos -- efeitos sonoros usam canais
+    separados da música (pygame.mixer.music), então só parar a música
+    nunca é suficiente pra silenciar um efeito ainda tocando."""
+    try:
+        pygame.mixer.stop()
+    except pygame.error:
+        pass
+
+
 def parar_tudo():
     """Para a música de fundo E todos os efeitos (todos os canais) de
     uma vez -- chamado ao sair da Fase 2 por qualquer caminho (vitória,
@@ -133,7 +182,7 @@ def iniciar_musica_fundo():
         return
     try:
         pygame.mixer.music.load(SOM_MUSICA_FUNDO)
-        pygame.mixer.music.set_volume(VOLUME_MUSICA_FUNDO)
+        pygame.mixer.music.set_volume(VOLUME_MUSICA_FUNDO * fator_volume_geral)
         pygame.mixer.music.play(loops=-1)
     except pygame.error:
         pass

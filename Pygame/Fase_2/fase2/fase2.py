@@ -34,6 +34,7 @@ import pygame
 
 from .puzzles import ada_chatbot, babbage_lovelace
 from . import audio_fase2
+from . import config_fase2
 
 # Pasta assets/ desta fase (onde ficam as imagens: cenários, objetos,
 # personagem etc.) -- calculada a partir do caminho deste próprio arquivo,
@@ -58,7 +59,7 @@ GREEN = (0, 255, 140)  # usado só em marcadores/efeitos visuais, não no texto 
 # é só a "margem de segurança" usada nas contas de colisão (_position_allowed
 # mais abaixo), pra indicar o quão perto das bordas do chão ou da bancada o
 # personagem pode chegar.
-PLAYER_RADIUS = 22
+PLAYER_RADIUS = 30  # crescido junto com AVATAR_FIT (mesma proporção), pra manter a mesma folga relativa entre o sprite maior e as paredes/bancada
 
 # Distância (em pixels) que já conta como "chegou" no alvo de um
 # deslocamento automático (usado por Jogador.mover_para, só na caminhada automática até a linha do tempo. sem essa linha 
@@ -159,9 +160,9 @@ WINDOW_CORNER_Y_NEAR = 575
 # Sala da máquina do tempo que só existe depois que o puzzle de Babbage é resolvido: uma transição (fade) troca o fundo da oficina pela
 # sala_maquina_tempo.png e leva o personagem pra lá, só  chão andável (no momento da transição o jogador não consegue mover).
 MACHINE_ROOM_FLOOR_RECT = pygame.Rect(20, 480, 960, 150)
-MACHINE_ROOM_ENTRY_POS = (60, 605)  # onde os pés do personagem aparecem, como se tivesse entrado por uma porta à esquerda
-TIME_MACHINE_FIT = ("h", 230)
-TIME_MACHINE_POS = (715, 380)  # espaço vazio de parede reservado na nova sala (canto central-direita, antes da prateleira)
+MACHINE_ROOM_ENTRY_POS = (60, 595)  # onde os pés do personagem aparecem, como se tivesse entrado por uma porta à esquerda -- ajustado junto com o aumento de PLAYER_RADIUS, pra continuar dentro da margem permitida por _position_allowed (senão o personagem nasceria fora do chão andável e ficaria preso sem conseguir andar de lado)
+TIME_MACHINE_FIT = ("h", 380)  # um pouco maior que o personagem (AVATAR_FIT), pra ficar imponente -- é uma máquina que a pessoa entra dentro
+TIME_MACHINE_POS = (715, 530)  # pé/base da máquina (não o centro) -- assim, aumentar TIME_MACHINE_FIT só faz ela crescer PRA CIMA, mantendo a base encostada no chão (canto central-direita, antes da prateleira). Y medido/calibrado na linha onde a parede do fundo encontra o piso de madeira em sala_maquina_tempo.png, pra base não flutuar.
 TIME_MACHINE_ARRIVAL_POS = (715, 585)  # onde os pés do personagem param na caminhada automática e o jogador toma controle
 FADE_DURATION_SECONDS = 0.35
 
@@ -188,7 +189,7 @@ AVATAR_ASSETS = {
     "avatar_andando1_f": "personagem_mulher_andando1.png",
     "avatar_andando2_f": "personagem_mulher_andando2.png",
 }
-AVATAR_FIT = ("h", 220)  # personagem em tamanho proporcional a bancada/objetos da sala para que não fique
+AVATAR_FIT = ("h", 300)  # personagem em tamanho proporcional a bancada/objetos da sala para que não fique
 #muito grande ou muito pequeno
 
 # ---------------------------------------------------------------------------
@@ -321,7 +322,7 @@ def _load_assets():
     # precisar recalcular a mão tudo de novo.
     machine_raw = pygame.image.load(os.path.join(ASSETS_DIR, "maquina_do_tempo_v4.png")).convert_alpha()
     TIME_MACHINE_SPRITE = _scale_fit(machine_raw, TIME_MACHINE_FIT)
-    TIME_MACHINE_RECT = TIME_MACHINE_SPRITE.get_rect(center=TIME_MACHINE_POS)
+    TIME_MACHINE_RECT = TIME_MACHINE_SPRITE.get_rect(midbottom=TIME_MACHINE_POS)
 
     # avatar do jogador (todos os frames, dos dois gêneros)
     # AVATAR_ASSETS tem 6 entradas (3 frames x 2 gêneros); esse loop carrega
@@ -820,7 +821,7 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
     jogador = Jogador(
         frame_parado=AVATAR_FRAMES[f"parado{sufixo}"],
         frames_andando=[AVATAR_FRAMES[f"andando1{sufixo}"], AVATAR_FRAMES[f"andando2{sufixo}"]],
-        posicao_inicial=(340, 600),  # pés no chão aberto em frente à bancada, entre baú e caixote
+        posicao_inicial=(340, 595),  # pés no chão aberto em frente à bancada, entre baú e caixote
     )
 
     # Retrato clicável da Ada Lovelace + a caixinha de chat com a IA -- só existe/aparece na oficina (na sala da máquina do tempo não é
@@ -890,6 +891,21 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
                 # caixinha aberta (é a única coisa que a roda do mouse
                 # controla na cena).
                 ada_chat.tratar_evento_scroll(event)
+            elif (
+                event.type == pygame.MOUSEBUTTONDOWN
+                and event.button == 1
+                and not ada_chat.aberta
+                and config_fase2.engrenagem_rect(width).collidepoint(event.pos[0] * scale_x, event.pos[1] * scale_y)
+            ):
+                # Botão de configurações: sempre acessível (oficina e
+                # sala da máquina do tempo), menos com a conversa da Ada
+                # aberta (mesma regra do resto do mouse/teclado enquanto
+                # ela está roubando a atenção). O painel É o "jogo
+                # pausado": nada do resto do laço roda enquanto ele está
+                # aberto (ver config_fase2.abrir_painel_config()).
+                resultado_config = config_fase2.abrir_painel_config(screen, clock, width, height)
+                if resultado_config == "sair":
+                    running = False
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and not walking_to_machine and not ada_chat.aberta:
                 # not walking_to_machine: durante a caminhada automática
                 # até a máquina, o jogador não deve conseguir interagir com
@@ -968,7 +984,30 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
                     if not clicked_something and PAPER_RECT.collidepoint(click_pos):
                         clicked_something = True
                         if all(collected.values()):
-                            if babbage_lovelace.run(screen, clock, ada_chat, estado_puzzle):
+                            resultado_puzzle = babbage_lovelace.run(screen, clock, ada_chat, estado_puzzle)
+                            if resultado_puzzle == "sair":
+                                # Jogador escolheu SAIR no painel de
+                                # config ABERTO DE DENTRO DO PUZZLE (ver
+                                # o tratamento de "sair" no loop de
+                                # babbage_lovelace.run()) -- encerra a
+                                # fase inteira, não só o puzzle.
+                                running = False
+                            elif resultado_puzzle:
+                                # Segunda camada de segurança além do
+                                # audio_fase2.parar_vitoria() já chamado
+                                # dentro do próprio babbage_lovelace.run()
+                                # -- efeitos sonoros usam canais
+                                # separados da música (pygame.mixer.music),
+                                # então garante aqui também que NENHUM
+                                # efeito (nem o de vitória, nem qualquer
+                                # outro) continue tocando ao entrar na
+                                # sala da máquina do tempo. A música de
+                                # fundo continua tocando normalmente (só
+                                # para de vez ao sair da fase, ver o
+                                # audio_fase2.parar_tudo() no final de
+                                # run()).
+                                audio_fase2.parar_efeitos()
+
                                 # O puzzle foi resolvido. Agora faz a
                                 # transição pra sala separada da máquina do
                                 # tempo, fade a partir do último quadro
@@ -1134,6 +1173,12 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
         if bottom_hint:
             hint_surf2 = hint_font.render(bottom_hint, True, CREAM)
             screen.blit(hint_surf2, hint_surf2.get_rect(midbottom=(width // 2, height - 8)))
+
+        # Botão de configurações -- sempre visível, em toda tela jogável
+        # da fase (oficina e sala da máquina do tempo; o puzzle desenha
+        # o próprio dentro de babbage_lovelace.run(), que tem seu
+        # próprio loop separado deste).
+        config_fase2.desenhar_engrenagem(screen, width, mouse_pos)
 
         # redimensiona a tela virtual (width x height) pro tamanho real da janela só na hora de mostrar enenhuma coordenada de desenho precisa mudar.
 

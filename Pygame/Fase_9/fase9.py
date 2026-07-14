@@ -57,6 +57,7 @@ from npc_chatbot import NPCChatbot
 import puzzle_terminal
 from estilo_crt import COR_FUNDO_CRT, COR_AMBAR, COR_AMBAR_BRILHO, render_texto_glow, desenhar_scanlines
 import audio_fase9
+import config_fase9
 
 # PROPOSITALMENTE sem nenhuma chamada de "DPI awareness" aqui: testado ao
 # vivo (clique físico simulado via API do Windows) e confirmado que, sem
@@ -126,7 +127,7 @@ FLOOR_RECT = pygame.Rect(138, 328, 663, 264)
 # aqui dispara o início do puzzle (placeholder por enquanto).
 COMPUTADOR_RECT = pygame.Rect(295, 120, 155, 95)
 
-PLAYER_RADIUS = 22  # mesma margem de colisão usada em fase2.py
+PLAYER_RADIUS = 27  # crescido junto com AVATAR_ALTURA (mesma proporção), pra manter a mesma folga relativa entre o sprite maior e as paredes -- mesma margem de colisão usada em fase2.py
 
 # Distância (em pixels) que já conta como "chegou" no alvo de uma
 # caminhada automática -- mesmo valor/papel de fase2.CLICK_ARRIVE_DIST,
@@ -149,20 +150,26 @@ CLICK_ARRIVE_DIST = 4
 # laterais, fora deste retângulo (por isso o personagem "entra" já dentro
 # da faixa livre, não na borda esquerda da tela).
 SALA_FINAL_FLOOR_RECT = pygame.Rect(230, 350, 560, 245)
-SALA_FINAL_ENTRY_POS = (255, 560)  # pés na borda esquerda do chão livre, como se tivesse acabado de entrar
+SALA_FINAL_ENTRY_POS = (262, 560)  # pés na borda esquerda do chão livre, como se tivesse acabado de entrar -- ajustado (255->262) junto com o aumento de PLAYER_RADIUS, pra continuar dentro da margem permitida por _posicao_permitida (senão o personagem nasceria fora do chão andável e ficaria preso sem conseguir andar de lado)
 
 # Máquina do tempo ENCOSTADA na parede do fundo (não solta no meio do
-# chão): a base dela (MAQUINA_TEMPO_POS + metade da altura) fica bem em
-# cima da linha onde a textura de chão de madeira (com as tábuas
-# visíveis) realmente começa nesta imagem (~y=335 -- medido direto em
-# cima de cena_final.png já escalada pra 960x600; a faixa acima disso,
-# até uns y=300, ainda é parede/rodapé, não chão). A altura (240)
-# continua um pouco MAIOR que o personagem (AVATAR_ALTURA=220) --
-# imponente, já que é uma máquina em que a pessoa entra dentro -- mas
-# ainda cabe dentro do trecho vazio da parede sem invadir as
-# estantes/bancadas dos dois lados, então não quebra a perspectiva.
-MAQUINA_TEMPO_ALTURA = 240
-MAQUINA_TEMPO_POS = (480, 215)  # centro do trecho vazio da parede, base tocando o chão em ~y=335
+# chão): MAQUINA_TEMPO_POS é a BASE dela (não o centro -- ver
+# get_rect(midbottom=...) mais abaixo), fixada bem em cima da linha onde
+# a textura de chão de madeira (com as tábuas visíveis) realmente começa
+# nesta imagem (~y=335 -- medido direto em cima de cena_final.png já
+# escalada pra 960x600; a faixa acima disso, até uns y=300, ainda é
+# parede/rodapé, não chão). Ancorar pela BASE (em vez do centro) garante
+# que aumentar MAQUINA_TEMPO_ALTURA só faz ela crescer PRA CIMA, sem
+# nunca voltar a flutuar.
+#
+# A altura (280) é um pouco MAIOR que o personagem (AVATAR_ALTURA=270)
+# -- imponente, já que é uma máquina em que a pessoa entra dentro -- mas
+# sem passar do cano/tubulação que corre horizontalmente perto do teto
+# desta sala (~y=65 em cima da mesma imagem escalada): 280 foi o maior
+# valor testado que ainda deixa uma folga visível abaixo do cano (300+
+# já esbarra nele) -- ver o comentário de MAQUINA_TEMPO_CHEGADA_POS.
+MAQUINA_TEMPO_ALTURA = 280
+MAQUINA_TEMPO_POS = (480, 335)  # base (não centro) do trecho vazio da parede
 # Onde os pés do personagem param na caminhada automática: em frente à
 # máquina. Não dá pra ficar 100% sem sobrepor (a máquina agora ocupa boa
 # parte da faixa de chão vertical disponível) sem esbarrar na dica
@@ -229,7 +236,7 @@ AVATAR_ASSETS = {
     "andando1_f": caminho_asset("assets/imagens/personagem_mulher_andando1.png"),
     "andando2_f": caminho_asset("assets/imagens/personagem_mulher_andando2.png"),
 }
-AVATAR_ALTURA = 220  # mesma escala (altura em pixels) usada em fase2.py
+AVATAR_ALTURA = 270  # mesma escala (altura em pixels) usada em fase2.py
 
 
 # =====================================================================
@@ -609,7 +616,7 @@ class Jogo:
         # --- Sala final (SALA_FINAL) -- fundo + máquina do tempo ---
         self.img_fundo_sala_final = carregar_imagem(CENA_FINAL_PATH, (LARGURA, ALTURA))
         self.maquina_tempo_sprite = carregar_avatar_altura(MAQUINA_TEMPO_PATH, MAQUINA_TEMPO_ALTURA)
-        self.maquina_tempo_rect = self.maquina_tempo_sprite.get_rect(center=MAQUINA_TEMPO_POS)
+        self.maquina_tempo_rect = self.maquina_tempo_sprite.get_rect(midbottom=MAQUINA_TEMPO_POS)
 
         # --- Avatar do jogador (mesmos frames/escala da Fase 2) ---
         self.character_name = character_name
@@ -791,6 +798,23 @@ class Jogo:
                 elif (
                     evento.type == pygame.MOUSEBUTTONDOWN
                     and evento.button == 1
+                    and not self.npc_chat.dialogo_aberto
+                    and config_fase9.engrenagem_rect(LARGURA).collidepoint(evento.pos)
+                ):
+                    # Botão de configurações: sempre acessível (quarto e
+                    # sala final), menos com a conversa do SYSTEM_AI
+                    # aberta (mesma regra do resto do teclado/mouse
+                    # enquanto ela está roubando a atenção -- ver o
+                    # KEYDOWN acima). O painel É o "jogo pausado": nada
+                    # do resto do laço roda enquanto ele está aberto (ver
+                    # config_fase9.abrir_painel_config()).
+                    resultado_config = config_fase9.abrir_painel_config(self.tela, self.relogio, LARGURA, ALTURA)
+                    if resultado_config == "sair":
+                        rodando = False
+
+                elif (
+                    evento.type == pygame.MOUSEBUTTONDOWN
+                    and evento.button == 1
                     and self.estado == Jogo.QUARTO
                     and not self.npc_chat.dialogo_aberto
                     and COMPUTADOR_RECT.collidepoint(evento.pos)
@@ -805,7 +829,13 @@ class Jogo:
                         self.tela, self.relogio, self.npc_chat,
                         self.estado_puzzle_terminal, LARGURA, ALTURA,
                     )
-                    if resolveu:
+                    if resolveu == "sair":
+                        # Jogador escolheu SAIR no painel de config
+                        # ABERTO DE DENTRO DO PUZZLE (ver o tratamento de
+                        # "sair" no loop de puzzle_terminal.run()) --
+                        # encerra a fase inteira, não só o puzzle.
+                        rodando = False
+                    elif resolveu:
                         self._iniciar_sequencia_de_vitoria()
                     else:
                         self.estado = Jogo.QUARTO
@@ -871,6 +901,12 @@ class Jogo:
                 if not self.npc_chat.dialogo_aberto:
                     self.npc_chat.desenhar_dica_interacao(self.tela, self.fonte_pequena)
                 self.npc_chat.desenhar_contador_dicas(self.tela, self.fonte_pequena)
+
+            # Botão de configurações -- sempre visível, em toda tela
+            # jogável da fase (quarto e sala final; o puzzle desenha o
+            # próprio dentro de puzzle_terminal.run(), que tem seu
+            # próprio loop separado deste).
+            config_fase9.desenhar_engrenagem(self.tela, LARGURA, pygame.mouse.get_pos())
 
             pygame.display.flip()
             self.relogio.tick(FPS)

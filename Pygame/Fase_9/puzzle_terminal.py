@@ -76,6 +76,8 @@ from estilo_crt import (
     desenhar_scanlines,
 )
 import audio_fase9
+import config_fase9
+import desktop_final
 
 FPS = 60
 
@@ -298,6 +300,15 @@ class EstadoPuzzleTerminal:
     no computador de novo continua exatamente de onde parou."""
 
     def __init__(self):
+        # Só vira True depois que a etapa WIMP é concluída E a animação
+        # de "tela acendendo" já tocou uma vez -- ver o tratamento de
+        # "estado.concluido and not estado.no_desktop_final" em run().
+        # Fora do reiniciar() de propósito: uma vez True, nunca mais
+        # deveria voltar a False (reiniciar() só é chamado num "TENTAR
+        # NOVAMENTE" depois de uma derrota, que nunca acontece depois
+        # que o WIMP já foi concluído -- ver o guard em
+        # atualizar_tempo()).
+        self.no_desktop_final = False
         self.reiniciar()
 
     def reiniciar(self):
@@ -701,8 +712,29 @@ def run(tela, relogio, npc_chat, estado, largura, altura):
     histórico da conversa. `estado` é o EstadoPuzzleTerminal (também
     criado uma vez em fase9.py), que é o que permite fechar essa tela
     sem terminar e retomar a mesma etapa depois.
+
+    "Concluir as 3 etapas" só libera o desktop final -- a fase só
+    termina de verdade quando o jogador também decifra o código de
+    ativação escondido lá (ver desktop_final.py). Por isso o valor
+    devolvido pode ser True (código certo, fase9.py segue pra sala da
+    máquina do tempo), False (saiu sem terminar -- de QUALQUER etapa,
+    inclusive do desktop final) ou a string "sair" (escolheu SAIR no
+    painel de configurações -- fase9.py encerra a fase inteira).
     """
     _carregar_sons_do_puzzle()
+
+    if estado.no_desktop_final:
+        # Já concluiu as 3 etapas numa aberta anterior e fechou o
+        # desktop final sem decifrar o código -- pula direto pra lá de
+        # novo (sem refazer nenhuma etapa nem tocar a animação de "tela
+        # acendendo" outra vez).
+        resultado_desktop = desktop_final.run(
+            tela, relogio, npc_chat, largura, altura,
+            _som_clique, _som_sucesso, _som_erro,
+        )
+        if resultado_desktop == "sair":
+            return "sair"
+        return bool(resultado_desktop)
 
     fonte_titulo = pygame.font.SysFont("consolas", 24, bold=True)
     fonte_etapa = pygame.font.SysFont("consolas", 15, bold=True)
@@ -753,6 +785,7 @@ def run(tela, relogio, npc_chat, estado, largura, altura):
     estado.reembaralhar_opcoes()
 
     concluido_agora = False
+    saiu_da_fase = False  # True se o jogador escolheu SAIR no painel de config (ver o tratamento de MOUSEBUTTONDOWN mais abaixo) -- diferente de fechar o puzzle sem terminar (rodando=False sem isso), que só volta pro QUARTO (ver fase9.Jogo.executar())
     rodando = True
     while rodando:
         dt = relogio.tick(FPS) / 1000
@@ -864,6 +897,19 @@ def run(tela, relogio, npc_chat, estado, largura, altura):
                 and not npc_chat.dialogo_aberto
                 and not estado.concluido
             ):
+                if config_fase9.engrenagem_rect(largura).collidepoint(evento.pos):
+                    # Botão de configurações: acessível em qualquer
+                    # etapa do puzzle, inclusive na tela de derrota --
+                    # checado ANTES do resto (inclusive antes do "só o
+                    # retry reage" da tela de derrota, logo abaixo), pra
+                    # sempre funcionar não importa a etapa. O painel É o
+                    # "jogo pausado" (ver config_fase9.abrir_painel_config()).
+                    resultado_config = config_fase9.abrir_painel_config(tela, relogio, largura, altura)
+                    if resultado_config == "sair":
+                        saiu_da_fase = True
+                        rodando = False
+                    continue
+
                 if estado.derrotado:
                     # Na tela de derrota só o botão de reiniciar reage a
                     # clique -- os botões de comando/WIMP nem são
@@ -1059,17 +1105,43 @@ def run(tela, relogio, npc_chat, estado, largura, altura):
         # --- SYSTEM_AI (dica) por cima de tudo, igual à Ada na Fase 2 ---
         npc_chat.desenhar(tela, fonte_pista, fonte_hint, largura, altura)
 
+        # --- botão de configurações: sempre visível, em qualquer etapa
+        # do puzzle (inclusive na tela de derrota) ---
+        config_fase9.desenhar_engrenagem(tela, largura, mouse_pos)
+
         pygame.display.flip()
 
-        # Conclusão: dispara a animação de "a tela acende" e encerra o
-        # loop devolvendo True -- feito FORA do loop de eventos (só
-        # depois de já ter desenhado o frame com a mensagem de sucesso
-        # da 3ª etapa, senão o jogador nunca chegaria a ver o texto
-        # "Desktop gráfico ativado!" antes da tela mudar).
-        if estado.concluido and not concluido_agora:
+        # Conclusão das 3 etapas: dispara a animação de "a tela acende"
+        # e entra DIRETO no desktop final interativo (não devolve True
+        # ainda -- feito FORA do loop de eventos, só depois de já ter
+        # desenhado o frame com a mensagem de sucesso da 3ª etapa, senão
+        # o jogador nunca chegaria a ver o texto "Desktop gráfico
+        # ativado!" antes da tela mudar).
+        if estado.concluido and not estado.no_desktop_final:
             audio_fase9.tocar_som(_som_computador_ligando)
             _animar_tela_acendendo(tela, relogio, largura, altura)
-            concluido_agora = True
-            rodando = False
+            estado.no_desktop_final = True
 
+            resultado_desktop = desktop_final.run(
+                tela, relogio, npc_chat, largura, altura,
+                _som_clique, _som_sucesso, _som_erro,
+            )
+            if resultado_desktop == "sair":
+                saiu_da_fase = True
+            elif resultado_desktop:
+                concluido_agora = True
+            rodando = False
+            # "continue" (em vez de deixar o loop cair no próximo "while
+            # rodando") pra NÃO redesenhar mais uma vez a tela da etapa
+            # WIMP (já concluída) por cima do que o desktop_final.run()
+            # acabou de mostrar -- senão o jogador veria um flash de
+            # volta pro terminal bem antes da transição de vitória.
+            continue
+
+    if saiu_da_fase:
+        # Sinal especial (string, não bool) pra fase9.Jogo.executar()
+        # saber que deve encerrar a FASE INTEIRA (não só voltar pro
+        # QUARTO como faria um ESC/FECHAR normal) -- ver o tratamento de
+        # "sair" logo depois da chamada a run() lá.
+        return "sair"
     return concluido_agora

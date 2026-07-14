@@ -45,6 +45,7 @@ import pygame
 
 from . import common
 from .. import audio_fase2
+from .. import config_fase2
 
 # Pasta assets/ da Fase 2 (mesma ideia do ASSETS_DIR em common.py).
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
@@ -287,6 +288,7 @@ def run(screen, clock, ada_chat, estado):
     solved = False  # true assim que os cartões estiverem na ordem certa
     solve_timer = 0.0  # conta quanto tempo já ficou "resolvido" (girando + "Máquina ligada!")
     completed = False  # valor final devolvido por essa função
+    saiu_da_fase = False  # True se o jogador escolheu SAIR no painel de config (ver o tratamento de MOUSEBUTTONDOWN mais abaixo) -- diferente de fechar o puzzle sem terminar (running=False sem isso), que só volta pra oficina (ver fase2.run())
 
     # Se o jogador já tinha perdido antes de fechar essa tela (tempo zerou
     # numa aberta anterior e ele saiu sem clicar "Tentar novamente"),
@@ -339,6 +341,23 @@ def run(screen, clock, ada_chat, estado):
                 # Rola o texto da resposta da Ada -- mesma lógica da cena
                 # principal da oficina (fase2.py).
                 ada_chat.tratar_evento_scroll(event)
+            elif (
+                event.type == pygame.MOUSEBUTTONDOWN
+                and event.button == 1
+                and not ada_chat.aberta
+                and not solved
+                and config_fase2.engrenagem_rect(width).collidepoint(mouse_pos)
+            ):
+                # Botão de configurações: acessível em qualquer momento
+                # do puzzle, inclusive na tela de derrota -- checado
+                # ANTES do resto (inclusive antes do "só o retry reage"
+                # da tela de derrota, logo abaixo), pra sempre funcionar.
+                # O painel É o "jogo pausado" (ver
+                # config_fase2.abrir_painel_config()).
+                resultado_config = config_fase2.abrir_painel_config(screen, clock, width, height)
+                if resultado_config == "sair":
+                    saiu_da_fase = True
+                    running = False
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and derrotado:
                 # Na tela de derrota só o botão de reiniciar reage a
                 # clique -- os cartões/slots nem são desenhados aqui, então
@@ -398,11 +417,16 @@ def run(screen, clock, ada_chat, estado):
             print("Puzzle resolvido: máquina de Babbage programada com sucesso!")
 
         # Cronômetro: só conta enquanto ainda está jogando (nem resolvido
-        # nem já em tela de derrota) -- por isso decrementar tempo_restante
-        # só acontece aqui dentro do loop, nunca entre uma chamada de run()
-        # e outra. É exatamente isso que faz o cronômetro "pausar" quando o
-        # jogador fecha a tela do puzzle sem resolver.
-        if not solved and not derrotado:
+        # nem já em tela de derrota, nem com a conversa da Ada aberta) --
+        # por isso decrementar tempo_restante só acontece aqui dentro do
+        # loop, nunca entre uma chamada de run() e outra. É exatamente
+        # isso que faz o cronômetro "pausar" quando o jogador fecha a
+        # tela do puzzle sem resolver. A pausa durante `ada_chat.aberta`
+        # é o mesmo espírito da pausa do SYSTEM_AI na Fase 9 (ver
+        # puzzle_terminal.EstadoPuzzleTerminal.atualizar_tempo): o tempo
+        # que o Ollama leva pra responder não deveria contar contra o
+        # jogador.
+        if not solved and not derrotado and not ada_chat.aberta:
             estado.tempo_restante = max(0.0, estado.tempo_restante - dt)
             if estado.tempo_restante <= 0:
                 derrotado = True
@@ -504,6 +528,10 @@ def run(screen, clock, ada_chat, estado):
         tempo_surf = common.FONT_MED.render(f"{minutos:02d}:{segundos:02d}", True, cor_tempo)
         screen.blit(tempo_surf, tempo_surf.get_rect(topright=(width - 50, 44)))
 
+        # --- botão de configurações: sempre visível, em qualquer etapa
+        # do puzzle (inclusive na tela de derrota) ---
+        config_fase2.desenhar_engrenagem(screen, width, mouse_pos)
+
         # redimensiona a tela virtual pro tamanho real da janela só na hora
         # de mostrar -- nenhuma coordenada de desenho precisa mudar.
         scaled = pygame.transform.smoothscale(screen, (real_w, real_h))
@@ -518,4 +546,11 @@ def run(screen, clock, ada_chat, estado):
     # o controle pra fase2.py -- ele não pode continuar tocando durante
     # o fade/sala da máquina do tempo que vem a seguir.
     audio_fase2.parar_vitoria()
+
+    if saiu_da_fase:
+        # Sinal especial (string, não bool) pra fase2.run() saber que
+        # deve encerrar a FASE INTEIRA (não só voltar pra oficina como
+        # faria um ESC/FECHAR normal) -- ver o tratamento de "sair" logo
+        # depois da chamada a babbage_lovelace.run() lá.
+        return "sair"
     return completed
