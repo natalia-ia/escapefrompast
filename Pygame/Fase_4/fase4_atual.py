@@ -23,15 +23,6 @@ VITORIA   -> aparece se o jogador decifrar corretamente DENTRO do
 DERROTA   -> aparece se o tempo (10 min) acabar antes da resposta
              correta -> "Que pena! Você não concluiu"
 
-COMO VOCÊ VAI PERSONALIZAR
----------------------------
-1. Gere/baixe as imagens e salve-as numa pasta "assets/" ao lado deste
-   arquivo (ou ajuste os caminhos).
-2. Preencha o dicionário ASSETS (logo abaixo) com os caminhos dos
-   arquivos.
-3. Enquanto uma imagem não existir, o jogo desenha automaticamente um
-   retângulo colorido com um texto no lugar dela (placeholder), então
-   você pode testar a lógica do jogo antes de ter todas as artes prontas.
 
 Requisitos: pip install pygame
 Execução:   python escape_room_turing.py
