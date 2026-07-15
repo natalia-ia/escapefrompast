@@ -150,8 +150,8 @@ ORDEM_CORRETA_CIRCUITO = ["C", "A", "D", "B"]
 # --- Desafio da Cena 4: o cálculo do Colossus ---
 # Troque o texto da conta e o resultado esperado à vontade - o
 # importante é que EXPRESSAO_CALCULO e RESULTADO_CALCULO combinem.
-EXPRESSAO_CALCULO = "7 x 6"
-RESULTADO_CALCULO = "42"
+EXPRESSAO_CALCULO = "CODIGO EM BITS"
+RESULTADO_CALCULO = "101001"
 
 # =====================================================================
 # 5. CLASSE: CAIXA DE TEXTO (aceita letras OU números, conforme o modo)
@@ -373,7 +373,7 @@ class Jogo:
             "FUNDO DA CENA 1\n(laboratório de Zuse)",
         )
         self.img_rele = carregar_imagem(
-            ASSETS["rele"], (60, 60), DOURADO_VALVULA, "RELÉ",
+            ASSETS["rele"], (30, 30), DOURADO_VALVULA, "RELÉ",
         )
         self.img_z3 = carregar_imagem(
             ASSETS["z3"], (188, 142), CINZA, "Z3",
@@ -429,7 +429,7 @@ class Jogo:
 
         # --- Botões do Menu e das telas finais ---
         self.botao_iniciar = pygame.Rect(0, 0, 220, 60)
-        self.botao_iniciar.center = (LARGURA - 270, 500)
+        self.botao_iniciar.center = (LARGURA - 245, 350)
 
         self.botao_reiniciar_vitoria = pygame.Rect(0, 0, 260, 60)
         self.botao_reiniciar_vitoria.center = (LARGURA // 2, ALTURA // 2 + 120)
@@ -442,7 +442,7 @@ class Jogo:
 
         # --- Relé (Cena 1) - clicável desde o início, vira colecionável ---
         # AJUSTE a posição para onde o relé aparece na sua imagem de fundo.
-        self.rect_rele = self.img_rele.get_rect(midbottom=(375, ALTURA - 208))
+        self.rect_rele = self.img_rele.get_rect(midbottom=(320, ALTURA - 121))
         self.rele_encontrado = False
 
         # --- Z3 (Cena 1) - só fica clicável depois do relé encontrado ---
@@ -463,7 +463,8 @@ class Jogo:
                 "Você é Konrad Zuse, entre 1941 e 1943, dentro de um jogo de escape "
                 "room educativo. Responda SOMENTE perguntas relacionadas à Fase 5: "
                 "o computador Z3, o relé eletromecânico queimado, o desafio de "
-                "reconectar os circuitos, e o computador Colossus. Se o jogador "
+                "reconectar os circuitos, e o computador Colossus. Se o jogador pedir dicas sobre o computador"
+                "Colossus, diga que na linguagem bits que 0 é desligado e 1 é ligado . Se o jogador "
                 "perguntar algo fora desse tema, responda educadamente que só pode "
                 "falar sobre esta fase. Responda sempre em português, em no máximo "
                 "3 frases curtas, sem revelar diretamente a solução dos desafios."
@@ -489,11 +490,12 @@ class Jogo:
             "C": pygame.Rect(0, 0, 80, 80),
             "D": pygame.Rect(0, 0, 80, 80),
         }
-        self.nos_circuito["A"].center = (220, 260)
-        self.nos_circuito["B"].center = (420, 420)
-        self.nos_circuito["C"].center = (620, 260)
-        self.nos_circuito["D"].center = (780, 420)
+        self.nos_circuito["A"].center = (160, 190)
+        self.nos_circuito["B"].center = (440, 420)
+        self.nos_circuito["C"].center = (640, 210)
+        self.nos_circuito["D"].center = (800, 410)
         self.progresso_circuito = []       # rótulos já clicados corretamente, em ordem
+        self.circuito_resolvido = False 
         self.mensagem_erro_circuito = ""
 
         # --- Botão "Voltar" da Cena de Dica 1 (-> Cena 1) ---
@@ -574,8 +576,8 @@ class Jogo:
     # -----------------------------------------------------------------
     def desenhar_menu(self):
         self.tela.blit(self.img_fundo_intro, (0, 0))
-        titulo = self.fonte_titulo.render("Fase 05 - Z3 e Colossus", True, BRANCO)
-        self.tela.blit(titulo, titulo.get_rect(center=(LARGURA - 280, 170)))
+        titulo = self.fonte_titulo.render("Fase 05 - Z3 e Colossus", True, PRETO)
+        self.tela.blit(titulo, titulo.get_rect(center=(LARGURA // 2, 115)))
 
         mouse_pos = pygame.mouse.get_pos()
         cor_botao = VERDE if self.botao_iniciar.collidepoint(mouse_pos) else AMARELO_SEPIA
@@ -589,7 +591,7 @@ class Jogo:
         instrucao = self.fonte_pequena.render(
             "Clique em Iniciar ou pressione ENTER", True, CINZA_CLARO,
         )
-        self.tela.blit(instrucao, instrucao.get_rect(center=(LARGURA - 270, 550)))
+        self.tela.blit(instrucao, instrucao.get_rect(center=(335, 500)))
 
     # -----------------------------------------------------------------
     # TELA: CENA 1 - LABORATÓRIO + RELÉ + Z3 + NPC + SETA
@@ -620,7 +622,7 @@ class Jogo:
         # O relé só aparece enquanto não foi coletado
         if not self.rele_encontrado:
             self.tela.blit(self.img_rele, self.rect_rele)
-            pygame.draw.rect(self.tela, AMARELO_SEPIA, self.rect_rele, width=3, border_radius=6)
+
 
         self.tela.blit(self.img_npc, self.rect_npc)
         self.jogador.desenhar(self.tela)
@@ -675,7 +677,7 @@ class Jogo:
         # --- Desenha os 4 nós do circuito ---
         for rotulo, rect in self.nos_circuito.items():
             ja_conectado = rotulo in self.progresso_circuito
-            cor = VERDE if ja_conectado else AZUL_ACO
+            cor = VERDE if ja_conectado else PRETO
             pygame.draw.circle(self.tela, cor, rect.center, rect.width // 2)
             pygame.draw.circle(self.tela, BRANCO, rect.center, rect.width // 2, width=3)
             texto_no = self.fonte_texto.render(rotulo, True, BRANCO)
@@ -707,6 +709,7 @@ class Jogo:
                     self.mensagem_erro_circuito = ""
                     if len(self.progresso_circuito) == len(ORDEM_CORRETA_CIRCUITO):
                         # Circuito religado! Segue para a Cena de Dica 1.
+                        self.circuito_resolvido = True
                         self.estado = Jogo.CENA_DICA1
                 else:
                     self.mensagem_erro_circuito = "Conexão errada! O circuito resetou."
@@ -768,7 +771,7 @@ class Jogo:
         self.desenhar_botao_inventario()
 
         titulo = self.fonte_texto.render(
-            "Resolva o cálculo para verificar o Colossus:", True, BRANCO,
+            "Decodifique para verificar o Colossus:", True, BRANCO,
         )
         self.tela.blit(titulo, titulo.get_rect(center=(LARGURA // 2, 180)))
 
@@ -919,6 +922,7 @@ class Jogo:
         self.mensagem_erro_cena4 = ""
         self.mensagem_erro_circuito = ""
         self.progresso_circuito = []
+        self.circuito_resolvido = False
         self.rele_encontrado = False
         self.estado = Jogo.MENU
         self.ticks_inicio = None
@@ -973,7 +977,10 @@ class Jogo:
                     # Clique no Z3 -> só funciona depois do relé encontrado
                     elif self.estado == Jogo.CENA1 and self.rele_encontrado and self.rect_z3.collidepoint(evento.pos):
                         self.jogador.mover_ate(self.ponto_interacao_z3)
-                        self.proximo_estado_ao_chegar = Jogo.CENA2
+                        if self.circuito_resolvido:
+                            self.proximo_estado_ao_chegar = Jogo.CENA_DICA1
+                        else:
+                            self.proximo_estado_ao_chegar = Jogo.CENA2
 
                     # Clique na seta -> anda até ela e segue para a Cena 3
                     elif self.estado == Jogo.CENA1 and self.rect_seta_avancar.collidepoint(evento.pos):
