@@ -94,13 +94,23 @@ def _salvar_progresso(estrelas, tempo_formatado):
     arquivo sem um sobrescrever o progresso do outro.
 
     Nunca sobrescreve um resultado MELHOR já salvo: se o jogador já tinha
-    completado essa fase antes com estrelas >= as de agora, não mexe em
-    nada (mantém o recorde antigo, inclusive o tempo dele)."""
+    completado essa fase antes com estrelas >= as de agora E aquele
+    registro já tem um tempo salvo, não mexe em nada (mantém o recorde
+    antigo). Mas se o registro antigo é de uma versão do jogo anterior ao
+    campo "tempo" (estrelas iguais/melhores, sem "tempo"), preenche só o
+    tempo agora -- sem piorar a contagem de estrelas já conquistada --
+    pra ele parar de ficar preso em "--:--" pra sempre no mapa (ver
+    menu/jogo.py, desenhar_progresso_fases)."""
     progresso = _carregar_progresso()
     anterior = progresso.get(PROGRESSO_CHAVE_FASE)
     if anterior is not None and anterior.get("estrelas", 0) >= estrelas:
-        return
-    progresso[PROGRESSO_CHAVE_FASE] = {"estrelas": estrelas, "completo": True, "tempo": tempo_formatado}
+        if anterior.get("tempo") is not None:
+            return
+        novo_registro = {**anterior, "tempo": tempo_formatado}
+    else:
+        novo_registro = {"estrelas": estrelas, "completo": True, "tempo": tempo_formatado}
+
+    progresso[PROGRESSO_CHAVE_FASE] = novo_registro
     with open(PROGRESSO_PATH, "w", encoding="utf-8") as arquivo:
         json.dump(progresso, arquivo, indent=2, ensure_ascii=False)
 

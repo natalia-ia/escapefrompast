@@ -172,6 +172,17 @@ FADE_DURATION_SECONDS = 0.35
 # abaixo.
 MENSAGEM_VITORIA_SEGUNDOS = 2.0
 
+# Cena de finalização: depois que o jogador clica na máquina do tempo (já
+# com o código/puzzle resolvido), mostrada antes de devolver o controle pro
+# menu -- ver _cena_finalizacao() mais abaixo. Cada _fade_transition() já
+# escurece E clareia (2 metades de FINALIZACAO_FADE_SEGUNDOS cada), e a
+# cena chama _fade_transition duas vezes (entrada e saída) -- o tempo
+# total é então 4x FINALIZACAO_FADE_SEGUNDOS + FINALIZACAO_MENSAGEM_
+# SEGUNDOS (~2.5s), dentro da janela de 2-3s pedida.
+MENSAGEM_FINALIZACAO = "Viajando no tempo..."
+FINALIZACAO_FADE_SEGUNDOS = 0.25
+FINALIZACAO_MENSAGEM_SEGUNDOS = 1.5
+
 # ---------------------------------------------------------------------------
 # Configurações do avatar do jogador
 # ---------------------------------------------------------------------------
@@ -749,29 +760,49 @@ def _fade_transition(screen, clock, before_surface, after_surface, duration=FADE
             pygame.display.flip()
 
 
-def _pontos_estrela(centro, raio_externo, raio_interno):
-    """Devolve os 10 vértices (alternando raio externo/interno, a cada
-    36°) de uma estrela de 5 pontas centrada em `centro`, com uma ponta
-    voltada pra cima -- usado por _desenhar_estrela."""
-    pontos = []
-    angulo_inicial = -math.pi / 2  # começa apontando pra cima
-    for i in range(10):
-        angulo = angulo_inicial + i * math.pi / 5
-        raio = raio_externo if i % 2 == 0 else raio_interno
-        pontos.append((centro[0] + raio * math.cos(angulo), centro[1] + raio * math.sin(angulo)))
-    return pontos
+def _cena_finalizacao(screen, clock):
+    """Cena curta (2-3s) mostrada depois que o jogador clica na máquina do
+    tempo (já com o puzzle resolvido), antes de devolver o controle pro
+    menu: para toda a música/efeitos da fase, escurece a partir do último
+    quadro jogável até um fundo marrom bem escuro com "Viajando no
+    tempo..." em dourado (mesmo estilo vitoriano do resto da fase), segura
+    a mensagem por um instante e escurece de novo antes de voltar -- assim
+    a troca de cena não corta a música/imagem de golpe nem pisca direto
+    pro mapa de fases."""
+    audio_fase2.parar_tudo()
 
+    largura, altura = screen.get_size()
+    ultimo_quadro = screen.copy()
 
-def _desenhar_estrela(surface, centro, raio, conquistada):
-    """Desenha uma estrela de 5 pontas em `centro`: preenchida em GOLD se
-    `conquistada`, ou só o contorno (vazia) num cinza apagado se não --
-    estilo vitoriano/dourado da fase, mesma paleta usada no resto da UI."""
-    pontos = _pontos_estrela(centro, raio, raio * 0.42)
-    if conquistada:
-        pygame.draw.polygon(surface, GOLD, pontos)
-        pygame.draw.polygon(surface, (120, 90, 30), pontos, width=2)
-    else:
-        pygame.draw.polygon(surface, (95, 95, 95), pontos, width=2)
+    mensagem_surface = pygame.Surface((largura, altura))
+    mensagem_surface.fill((26, 18, 10))
+    moldura_rect = pygame.Rect(0, 0, largura - 160, altura - 220)
+    moldura_rect.center = (largura // 2, altura // 2)
+    pygame.draw.rect(mensagem_surface, GOLD, moldura_rect, width=3, border_radius=14)
+
+    fonte_mensagem = pygame.font.SysFont("consolas", 34, bold=True)
+    texto_surf = fonte_mensagem.render(MENSAGEM_FINALIZACAO, True, GOLD)
+    mensagem_surface.blit(texto_surf, texto_surf.get_rect(center=moldura_rect.center))
+
+    tela_preta = pygame.Surface((largura, altura))
+
+    _fade_transition(screen, clock, ultimo_quadro, mensagem_surface, duration=FINALIZACAO_FADE_SEGUNDOS)
+
+    passos = max(1, int(FINALIZACAO_MENSAGEM_SEGUNDOS * 60))
+    for _ in range(passos):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                raise SystemExit
+        clock.tick(60)
+
+        screen.blit(mensagem_surface, (0, 0))
+        real_screen = pygame.display.get_surface()
+        scaled = pygame.transform.smoothscale(screen, real_screen.get_size())
+        real_screen.blit(scaled, (0, 0))
+        pygame.display.flip()
+
+    _fade_transition(screen, clock, mensagem_surface, tela_preta, duration=FINALIZACAO_FADE_SEGUNDOS)
 
 
 def _mostrar_mensagem_vitoria(screen, clock, cena_base, mensagem, duracao, estrelas=None, tempo_formatado=None):
@@ -785,14 +816,14 @@ def _mostrar_mensagem_vitoria(screen, clock, cena_base, mensagem, duracao, estre
     de _fade_transition: não é uma tela interativa, só processa QUIT pra
     não travar a janela achando que o app travou.
 
-    `estrelas` (1-3) e `tempo_formatado` ("MM:SS") são opcionais -- quando
-    informados (ver a chamada em run(), com o resultado de
-    babbage_lovelace.EstadoPuzzle), o banner cresce pra caber a fileira de
-    3 estrelas (douradas as conquistadas, vazias/cinza as que não) e o
-    tempo levado, embaixo da mensagem.
+    `estrelas` (1-3) continua aceito (mesma chamada em run(), com o
+    resultado de babbage_lovelace.EstadoPuzzle) mas não é mais desenhado
+    aqui -- as estrelas conquistadas aparecem só no mapa de fases (ver
+    Pygame/menu/jogo.py), não no final da fase. `tempo_formatado`
+    ("MM:SS"), se informado, ainda aparece no banner.
     """
     banner_largura = 560
-    banner_altura = 100 if estrelas is None else 190
+    banner_altura = 100 if tempo_formatado is None else 140
     banner_rect = pygame.Rect(0, 0, banner_largura, banner_altura)
     banner_rect.center = (screen.get_width() // 2, screen.get_height() // 2)
     banner_font = pygame.font.SysFont("consolas", 28, bold=True)
@@ -810,20 +841,13 @@ def _mostrar_mensagem_vitoria(screen, clock, cena_base, mensagem, duracao, estre
         pygame.draw.rect(screen, (43, 30, 20), banner_rect, border_radius=12)
         pygame.draw.rect(screen, GOLD, banner_rect, width=3, border_radius=12)
 
-        texto_y = banner_rect.top + 30 if estrelas is not None else banner_rect.centery
+        texto_y = banner_rect.top + 30 if tempo_formatado is not None else banner_rect.centery
         texto_surf = banner_font.render(mensagem, True, GOLD)
         screen.blit(texto_surf, texto_surf.get_rect(center=(banner_rect.centerx, texto_y)))
 
-        if estrelas is not None:
-            raio_estrela = 20
-            espaco_estrela = 56
-            estrelas_y = banner_rect.top + 100
-            for i in range(3):
-                centro_x = banner_rect.centerx + (i - 1) * espaco_estrela
-                _desenhar_estrela(screen, (centro_x, estrelas_y), raio_estrela, conquistada=(i < estrelas))
-            if tempo_formatado is not None:
-                tempo_surf = tempo_font.render(f"Tempo: {tempo_formatado}", True, CREAM)
-                screen.blit(tempo_surf, tempo_surf.get_rect(center=(banner_rect.centerx, banner_rect.bottom - 26)))
+        if tempo_formatado is not None:
+            tempo_surf = tempo_font.render(f"Tempo: {tempo_formatado}", True, CREAM)
+            screen.blit(tempo_surf, tempo_surf.get_rect(center=(banner_rect.centerx, banner_rect.bottom - 30)))
 
         real_screen = pygame.display.get_surface()
         scaled = pygame.transform.smoothscale(screen, real_screen.get_size())
@@ -1284,6 +1308,13 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
         pygame.display.flip()
 
     # completed só vira True lá em cima, quando o jogador clica na máquina do tempo depois de chegar perto dela e se saiu antes com ESC continua False.
+
+    if completed:
+        # Cena de finalização (2-3s, "Viajando no tempo...") -- só depois
+        # de clicar na máquina, antes de devolver o controle pro menu (ver
+        # _cena_finalizacao acima). Se saiu por ESC, não faz sentido
+        # mostrar essa cena, pula direto pro parar_tudo()/return de baixo.
+        _cena_finalizacao(screen, clock)
 
     # Sai da fase por qualquer caminho (vitória ou ESC) -- para a
     # música de fundo e qualquer efeito ainda tocando, pra nada da

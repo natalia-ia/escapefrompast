@@ -3,6 +3,7 @@
 Fase 5: Z3 E COLOSSUS (1941-1943)
 =====================================================================
 """
+import json
 import os
 import sys
 import pygame
@@ -41,6 +42,106 @@ def caminho_asset(nome_relativo):
     return os.path.join(PASTA_DO_SCRIPT, nome_relativo)
 
 
+# ---------------------------------------------------------------------------
+# Progresso (estrelas + tempo) -- mesmo arquivo/formato compartilhado que
+# Fase_2/fase2/puzzles/babbage_lovelace.py, Fase_9/puzzle_terminal.py e
+# Fase_4/fase4_atual.py já usam: {"estrelas": 1-3, "completo": true,
+# "tempo": "MM:SS"} ("tempo" é quanto o jogador LEVOU pra resolver, não
+# quanto sobrou no timer). Fica na raiz de Pygame/ (uma pasta acima
+# desta, Fase_5/ -> Pygame/), fora de qualquer fase específica -- mesmo
+# espírito autocontido do resto do repositório (cada fase grava sua
+# própria chave, sem importar de outra).
+# ---------------------------------------------------------------------------
+_PYGAME_DIR = os.path.dirname(PASTA_DO_SCRIPT)
+PROGRESSO_PATH = os.path.join(_PYGAME_DIR, "progresso.json")
+PROGRESSO_CHAVE_FASE = "fase_5"
+
+
+def _carregar_progresso():
+    """Lê Pygame/progresso.json inteiro (de todas as fases). Devolve um
+    dicionário vazio se o arquivo ainda não existir ou vier corrompido --
+    assim a gente nunca trava tentando salvar só porque o arquivo está
+    ausente ou malformado."""
+    if not os.path.exists(PROGRESSO_PATH):
+        return {}
+    try:
+        with open(PROGRESSO_PATH, "r", encoding="utf-8") as arquivo:
+            return json.load(arquivo)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _salvar_progresso(estrelas, tempo_formatado):
+    """Grava `estrelas` (1 a 3, ver _calcular_estrelas) e
+    `tempo_formatado` ("MM:SS", o tempo que o jogador LEVOU) na chave
+    PROGRESSO_CHAVE_FASE do progresso.json compartilhado, preservando as
+    chaves de outras fases que já estiverem lá.
+
+    Nunca sobrescreve um resultado MELHOR já salvo: se o jogador já tinha
+    completado essa fase antes com estrelas >= as de agora E aquele
+    registro já tem um tempo salvo, não mexe em nada. Mas se o registro
+    antigo só tem {"completo": true} (ex: gravado pelo menu antes desta
+    função existir, ver Pygame/menu/jogo.py _marcar_fase_completa) ou tem
+    estrelas iguais/melhores sem "tempo", preenche o que falta sem piorar
+    a contagem de estrelas já conquistada."""
+    progresso = _carregar_progresso()
+    anterior = progresso.get(PROGRESSO_CHAVE_FASE)
+    if anterior is not None and anterior.get("estrelas", 0) >= estrelas:
+        if anterior.get("tempo") is not None:
+            return
+        novo_registro = {**anterior, "estrelas": anterior.get("estrelas", estrelas), "completo": True, "tempo": tempo_formatado}
+    else:
+        novo_registro = {"estrelas": estrelas, "completo": True, "tempo": tempo_formatado}
+
+    progresso[PROGRESSO_CHAVE_FASE] = novo_registro
+    with open(PROGRESSO_PATH, "w", encoding="utf-8") as arquivo:
+        json.dump(progresso, arquivo, indent=2, ensure_ascii=False)
+
+
+# Limiares de estrelas -- baseados no tempo RESTANTE no timer no instante
+# em que o jogador vence (mesmos limiares usados na Fase 2, na Fase 9 e
+# na Fase 4, pra estrela significar a mesma coisa em todas as fases).
+ESTRELAS_3_TEMPO_MIN = 25  # >= 25s sobrando -> 3 estrelas
+ESTRELAS_2_TEMPO_MIN = 15  # 15 a 24s sobrando -> 2 estrelas
+# < 15s sobrando -> 1 estrela (ver _calcular_estrelas)
+
+
+def _calcular_estrelas(tempo_restante):
+    """Devolve 1, 2 ou 3 conforme `tempo_restante` (segundos ainda no
+    timer quando o jogador venceu) contra os limiares acima. Esta fase
+    tem timer (TEMPO_LIMITE_SEGUNDOS), então sempre usa esta conta; uma
+    fase sem timer daria 1 estrela fixa por completar (não é o caso
+    aqui)."""
+    if tempo_restante >= ESTRELAS_3_TEMPO_MIN:
+        return 3
+    if tempo_restante >= ESTRELAS_2_TEMPO_MIN:
+        return 2
+    return 1
+
+
+def _formatar_tempo(segundos):
+    """Formata `segundos` (int/float) como "MM:SS"."""
+    total = max(0, int(segundos))
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
+def _parar_audio_seguro():
+    """Esta fase não usa pygame.mixer pra nada (sem música/efeito
+    próprio) -- mas o menu compartilha o mesmo processo pygame com todas
+    as fases, e quem chama esta função ao sair (ver o fim de executar())
+    não sabe se algum áudio de outro lugar ainda está tocando. Só uma
+    rede de segurança: para música E efeitos em qualquer canal, sem
+    travar se o mixer não estiver disponível."""
+    try:
+        pygame.mixer.music.stop()
+    except pygame.error:
+        pass
+    try:
+        pygame.mixer.stop()
+    except pygame.error:
+        pass
+
+
 ASSETS = {
     # Fundo da tela de MENU inicial. Sugestão: 960x600 px.
     "fundo_intro": caminho_asset("assets/fundo_intro.png"),
@@ -51,11 +152,14 @@ ASSETS = {
     "avatar_andando1": caminho_asset("assets/personagem_andando1.png"),
     "avatar_andando2": caminho_asset("assets/personagem_andando2.png"),
 
-    # Segundo personagem selecionável no menu (mesmo padrão de
-    # 3 imagens: parado + 2 de caminhada).
-    "avatar2_parado": caminho_asset("assets/personagem2_parado.png"),
-    "avatar2_andando1": caminho_asset("assets/personagem2_andando1.png"),
-    "avatar2_andando2": caminho_asset("assets/personagem2_andando2.png"),
+    # Segundo personagem (o "personagem_mulher/parada" escolhido no
+    # menu, ver Pygame/menu/jogo.py) -- os nomes de arquivo aqui eram
+    # "personagem2_*" (que não existem em assets/) antes desta correção;
+    # os arquivos que realmente existem seguem o mesmo padrão usado nas
+    # outras fases (personagem_parada.png / personagem_mulher_andando*).
+    "avatar2_parado": caminho_asset("assets/personagem_parada.png"),
+    "avatar2_andando1": caminho_asset("assets/personagem_mulher_andando1.png"),
+    "avatar2_andando2": caminho_asset("assets/personagem_mulher_andando2.png"),
 
     # Sprite do NPC: Konrad Zuse, parado no laboratório.
     "npc": caminho_asset("assets/konrad_zuse.png"),
@@ -350,11 +454,19 @@ class Jogo:
     VITORIA = "vitoria"
     DERROTA = "derrota"
 
-    def __init__(self, inventario=None):
+    def __init__(self, inventario=None, character_image=None, character_name="Jogador", genero="m"):
+        # character_image/character_name/genero seguem o mesmo formato
+        # que fase2.run()/Fase_9.Jogo()/Fase_4.Jogo() já recebem do menu
+        # (ver Pygame/menu/jogo.py) -- assim o personagem escolhido lá
+        # continua o mesmo aqui, em vez desta fase usar sempre o
+        # primeiro conjunto de sprites fixo. character_image só é
+        # guardado (não usado pra desenhar aqui -- não há retrato grande
+        # nesta fase); quem decide o sprite do avatar é `genero`.
         pygame.init()
         self.tela = pygame.display.set_mode((LARGURA, ALTURA))
         pygame.display.set_caption("Fase 5 - Z3 e Colossus (1941-1943)")
         self.relogio = pygame.time.Clock()
+        self.character_name = character_name
 
         # --- Inventário de colecionáveis (compartilhável entre fases) ---
         self.inventario = inventario if inventario is not None else Inventario()
@@ -410,9 +522,29 @@ class Jogo:
         self.img_avatar_andando2 = carregar_imagem(
             ASSETS["avatar_andando2"], (138, 288), CINZA, "ANDANDO 2",
         )
+        self.img_avatar2_parado = carregar_imagem(
+            ASSETS["avatar2_parado"], (138, 288), (120, 70, 70), "PARADO 2",
+        )
+        self.img_avatar2_andando1 = carregar_imagem(
+            ASSETS["avatar2_andando1"], (138, 288), (120, 70, 70), "ANDANDO 2.1",
+        )
+        self.img_avatar2_andando2 = carregar_imagem(
+            ASSETS["avatar2_andando2"], (138, 288), (120, 70, 70), "ANDANDO 2.2",
+        )
+
+        # Escolhe o conjunto de sprites de acordo com o `genero` recebido
+        # do menu -- "f" usa o segundo personagem, qualquer outro valor
+        # (o padrão "m") usa o primeiro, mesma regra da Fase 4.
+        if genero == "f":
+            _frame_parado_jogador = self.img_avatar2_parado
+            _frames_andando_jogador = [self.img_avatar2_andando1, self.img_avatar2_andando2]
+        else:
+            _frame_parado_jogador = self.img_avatar_parado
+            _frames_andando_jogador = [self.img_avatar_andando1, self.img_avatar_andando2]
+
         self.jogador = Jogador(
-            frame_parado=self.img_avatar_parado,
-            frames_andando=[self.img_avatar_andando1, self.img_avatar_andando2],
+            frame_parado=_frame_parado_jogador,
+            frames_andando=_frames_andando_jogador,
             posicao_inicial=(80, ALTURA - 320),
         )
 
@@ -802,6 +934,18 @@ class Jogo:
             )
             self.inventario.adicionar(item_final)
             self.estado = Jogo.VITORIA
+            # Estrelas calculadas com o tempo QUE SOBROU no timer neste
+            # instante exato (antes de reiniciar()/um novo cronômetro
+            # zerar ticks_inicio) -- mesmo ponto de cálculo que
+            # babbage_lovelace.py e fase4_atual.py usam. Não é mostrado
+            # nesta tela (ver Pygame/Fase_2/fase2/fase2.py e
+            # Pygame/Fase_9/fase9.py, onde as estrelas também só
+            # aparecem no mapa, não no final da fase) -- só calculado e
+            # salvo aqui.
+            tempo_restante = self.tempo_restante_segundos()
+            estrelas = _calcular_estrelas(tempo_restante)
+            tempo_gasto = TEMPO_LIMITE_SEGUNDOS - tempo_restante
+            _salvar_progresso(estrelas, _formatar_tempo(tempo_gasto))
         else:
             self.mensagem_erro_cena4 = "Cálculo incorreto. Tente novamente!"
             self.caixa_resposta_cena4.texto = ""
@@ -1026,6 +1170,7 @@ class Jogo:
                         self.mostrar_painel_inventario = True
 
                     elif self.estado == Jogo.VITORIA and self.botao_reiniciar_vitoria.collidepoint(evento.pos):
+                        _parar_audio_seguro()
                         return "vitoria"
 
                     elif self.estado == Jogo.DERROTA and self.botao_reiniciar_derrota.collidepoint(evento.pos):
@@ -1070,6 +1215,7 @@ class Jogo:
             pygame.display.flip()
             self.relogio.tick(FPS)
 
+        _parar_audio_seguro()
         pygame.quit()
         sys.exit()
 

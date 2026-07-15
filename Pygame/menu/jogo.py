@@ -1,3 +1,5 @@
+import json
+import math
 import os
 import sys
 import pygame
@@ -9,6 +11,69 @@ import pygame
 # dele está no sys.path antes de importar este módulo, e é lá que mora o
 # fase2/ daquela fase.
 from fase2.fase2 import run as run_fase2
+
+# Fase_9/, Fase_4/ e Fase_5/ (ao contrário de Fase_2/fase2/) não são
+# pacotes Python -- não tem __init__.py, só um arquivo .py solto em cada
+# pasta. Pra importar de lá sem mexer em nada dentro dessas pastas, cada
+# uma tem sua própria pasta inserida no sys.path (e não Pygame/, que é o
+# que Fase_2.py já garante) e o ponto de entrada é importado como módulo
+# de topo, igual cada uma faria se rodasse standalone.
+_PYGAME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_FASE4_DIR = os.path.join(_PYGAME_DIR, "Fase_4")
+_FASE5_DIR = os.path.join(_PYGAME_DIR, "Fase_5")
+_FASE9_DIR = os.path.join(_PYGAME_DIR, "Fase_9")
+
+PROGRESSO_PATH = os.path.join(_PYGAME_DIR, "progresso.json")
+
+
+def _carregar_progresso():
+    """Lê Pygame/progresso.json (mesmo arquivo que fase2/puzzles/babbage_
+    lovelace.py e Fase_9/puzzle_terminal.py escrevem). Devolve um
+    dicionário vazio se o arquivo ainda não existir ou vier corrompido."""
+    if not os.path.exists(PROGRESSO_PATH):
+        return {}
+    try:
+        with open(PROGRESSO_PATH, "r", encoding="utf-8") as arquivo:
+            return json.load(arquivo)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _marcar_fase_completa(chave):
+    """Fase_4/ e Fase_5/ ainda não têm nenhum sistema de progresso
+    próprio (sem estrelas, tempo ou "completo" -- ao contrário de
+    fase2/puzzles/babbage_lovelace.py e Fase_9/puzzle_terminal.py, que
+    gravam isso sozinhas). Pra mesmo assim dar pra desbloquear a fase
+    seguinte da sequência (ver Game._fase_desbloqueada), é O PRÓPRIO
+    MENU que grava um "completo": true mínimo em progresso.json quando o
+    jogador vence uma dessas fases -- só isso, sem mexer em nada dentro
+    de Pygame/Fase_4/ ou Pygame/Fase_5/. Preserva estrelas/tempo se um
+    dia essas fases passarem a gravar isso também."""
+    progresso = _carregar_progresso()
+    registro = dict(progresso.get(chave, {}))
+    registro["completo"] = True
+    progresso[chave] = registro
+    with open(PROGRESSO_PATH, "w", encoding="utf-8") as arquivo:
+        json.dump(progresso, arquivo, indent=2, ensure_ascii=False)
+
+
+def _importar_ponto_de_entrada(diretorio, modulo_fase, *nomes_para_purgar):
+    """Fase_4/, Fase_5/ e Fase_9/ importam módulos soltos com NOMES
+    REPETIDOS entre si (ex: as três têm seu próprio npc_chatbot.py;
+    Fase_4 e Fase_5 também têm cada uma o seu próprio inventario.py --
+    com conteúdo diferente em cada pasta). Se o Python já tivesse
+    carregado um desses nomes (de uma fase visitada antes nesta mesma
+    sessão do menu), ele reaproveitaria pra sempre o módulo ERRADO em
+    vez de carregar o da fase atual -- por isso cada fase só é importada
+    na hora do clique (não lá no topo deste arquivo), e antes de
+    importar, isso aqui remove esses nomes do cache (sys.modules) e põe
+    a pasta desta fase na FRENTE do sys.path, garantindo que cada fase
+    sempre pegue os seus próprios arquivos, não importa em que ordem o
+    jogador visite o mapa."""
+    for nome in nomes_para_purgar:
+        sys.modules.pop(nome, None)
+    sys.path.insert(0, diretorio)
+    return __import__(modulo_fase, fromlist=["Jogo"])
 
 pygame.init()
 
@@ -28,6 +93,44 @@ FPS = 60
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 BACKGROUND_PATH = os.path.join(ASSETS_DIR, "background.jpeg")
+
+# ---------------------------------------------------------------------------
+# Música de fundo do menu (tela principal + mapa de fases) -- toca em loop
+# assim que o menu abre e continua tocando por trás de main/options/phases;
+# só é parada bem antes de entrar em qualquer fase (ver os pontos onde
+# _parar_musica_menu()/_iniciar_musica_menu() são chamados em do_action),
+# senão ela ficaria tocando por baixo da música/efeitos da fase (ou,
+# no caso de Fase_4/Fase_5, que não têm música própria, tocando o jogo
+# INTEIRO sem parar nunca).
+# ---------------------------------------------------------------------------
+MUSICA_MENU_PATH = os.path.join(ASSETS_DIR, "msc_menu.mp3")
+VOLUME_MUSICA_MENU = 0.28  # ~28%, dentro da faixa 25-30% pedida
+
+
+def _iniciar_musica_menu():
+    """Toca MUSICA_MENU_PATH em loop contínuo (loops=-1) -- não faz nada
+    se o arquivo não existir ou o mixer não estiver disponível (mesmo
+    espírito defensivo de audio_fase2.iniciar_musica_fundo/audio_fase9.
+    iniciar_musica_fundo: áudio nunca deve travar o jogo)."""
+    if not os.path.isfile(MUSICA_MENU_PATH):
+        return
+    try:
+        pygame.mixer.music.load(MUSICA_MENU_PATH)
+        pygame.mixer.music.set_volume(VOLUME_MUSICA_MENU)
+        pygame.mixer.music.play(loops=-1)
+    except pygame.error:
+        pass
+
+
+def _parar_musica_menu():
+    """Para a música de fundo do menu -- chamado antes de entrar em
+    qualquer fase. pygame.mixer.music só toca UMA faixa por vez, então
+    sem isso a música do menu tocaria por cima (ou, pras fases sem
+    música própria, por baixo do jogo inteiro, sem nunca parar)."""
+    try:
+        pygame.mixer.music.stop()
+    except pygame.error:
+        pass
 
 _bg_raw = pygame.image.load(BACKGROUND_PATH).convert()
 BACKGROUND = pygame.transform.smoothscale(_bg_raw, (WIDTH, HEIGHT))
@@ -64,6 +167,126 @@ for _i in range(10):
     _cx = _PHASE_COL_CENTERS[_col]
     _y_top, _h = (_ROW1_Y, _ROW1_H) if _row == 0 else (_ROW2_Y, _ROW2_H)
     PHASE_RECTS.append(_scale_rect(_cx - _PHASE_RECT_W // 2, _y_top, _PHASE_RECT_W, _h))
+
+
+def _scale_point(x, y):
+    sx = WIDTH / PHASES_ORIG_SIZE[0]
+    sy = HEIGHT / PHASES_ORIG_SIZE[1]
+    return (x * sx, y * sy)
+
+
+def _scale_len(v, eixo="x"):
+    if eixo == "x":
+        return v * WIDTH / PHASES_ORIG_SIZE[0]
+    return v * HEIGHT / PHASES_ORIG_SIZE[1]
+
+
+# ---------------------------------------------------------------------------
+# Progresso no mapa de fases -- estrelas douradas, tempo real e o contador
+# "X/30" do canto superior direito, sobrepostos por cima dos campos que a
+# própria arte de phases_map.png já desenha vazios (estrela cinza/contorno,
+# "tempo: --:--", "0/30"). Posições medidas diretamente na imagem original
+# (1536x1024, ver PHASES_ORIG_SIZE) -- cada fase tem o centro das 3 estrelas
+# e o retângulo do placeholder "--:--" que fica logo abaixo delas.
+# ---------------------------------------------------------------------------
+GOLD = (212, 168, 67)
+
+PHASE_STAR_CENTERS = {
+    0: [(206, 285.5), (247.5, 285.5), (289.5, 285.5)],
+    1: [(472, 285), (512, 285), (552.5, 285)],
+    2: [(722, 284.5), (762, 284.5), (801.5, 284.5)],
+    3: [(984, 284.5), (1024, 284.5), (1064, 284.5)],
+    4: [(1235.5, 294.5), (1275, 294.5), (1314.5, 294.5)],
+    5: [(225.5, 661.5), (265, 661.5), (305.5, 661.5)],
+    6: [(482.5, 664), (522, 663.5), (563, 664)],
+    7: [(734, 661.5), (774, 661.5), (814.5, 661.5)],
+    8: [(977, 664.5), (1021.5, 664.5), (1062, 664.5)],
+    9: [(1236, 663), (1275.5, 663), (1316, 663)],
+}
+PHASE_STAR_RAIO = 14  # na escala original da imagem
+
+# Retângulo (x0, x1, y0, y1), na escala original, do "--:--" de cada fase --
+# onde o tempo real é desenhado por cima quando a fase tem progresso salvo.
+PHASE_TEMPO_RECT = {
+    0: (255, 299, 310, 327),
+    1: (519, 563, 310, 327),
+    2: (769, 813, 309, 326),
+    3: (1031, 1074, 309, 326),
+    4: (1282, 1326, 319, 336),
+    5: (272, 316, 686, 703),
+    6: (530, 574, 689, 706),
+    7: (781, 825, 686, 703),
+    8: (1028, 1073, 689, 706),
+    9: (1282, 1327, 688, 705),
+}
+
+# Retângulo do "0/30" no canto superior direito, na escala original --
+# substituído pelo total real de estrelas conquistadas (o "/30", 10 fases x
+# 3 estrelas, é fixo).
+COUNTER_TEXT_RECT = (1275, 1336, 43, 62)
+
+_CARD_BG_PATCH = (2, 4, 30)
+_COUNTER_BG_PATCH = (2, 2, 18)
+
+_FONT_TEMPO_PROGRESSO = pygame.font.SysFont("consolas", 13, bold=True)
+_FONT_COUNTER_PROGRESSO = pygame.font.SysFont("consolas", 18, bold=True)
+
+
+def _pontos_estrela(centro, raio_externo, raio_interno):
+    """Devolve os 10 vértices (alternando raio externo/interno, a cada
+    36°) de uma estrela de 5 pontas centrada em `centro`, com uma ponta
+    voltada pra cima. Mesma fórmula usada em fase2._pontos_estrela e
+    Fase_9/fase9._pontos_estrela, copiada aqui pelo mesmo motivo (módulo
+    autocontido, sem importar de dentro de uma fase específica)."""
+    pontos = []
+    angulo_inicial = -math.pi / 2
+    for i in range(10):
+        angulo = angulo_inicial + i * math.pi / 5
+        raio = raio_externo if i % 2 == 0 else raio_interno
+        pontos.append((centro[0] + raio * math.cos(angulo), centro[1] + raio * math.sin(angulo)))
+    return pontos
+
+
+def desenhar_progresso_fases(surface, progresso):
+    """Sobrepõe o progresso salvo (Pygame/progresso.json) em cima da arte
+    do mapa de fases: estrelas douradas nos espaços já conquistados (as
+    não conquistadas ficam como a arte já desenha, cinza -- não precisa
+    tocar nelas), o tempo real no lugar do "tempo: --:--" de cada fase, e
+    o total de estrelas no contador do canto superior direito. Uma fase
+    sem entrada em `progresso` mantém os campos vazios da arte, sem
+    nenhum desenho extra."""
+    total_estrelas = 0
+    for index in range(10):
+        dados = progresso.get(f"fase_{index + 1}")
+        if not dados:
+            continue
+        estrelas = dados.get("estrelas", 0)
+        total_estrelas += estrelas
+
+        raio = _scale_len(PHASE_STAR_RAIO)
+        for i in range(min(estrelas, 3)):
+            centro = _scale_point(*PHASE_STAR_CENTERS[index][i])
+            pontos = _pontos_estrela(centro, raio, raio * 0.42)
+            pygame.draw.polygon(surface, GOLD, pontos)
+            pygame.draw.polygon(surface, (120, 90, 30), pontos, width=2)
+
+        tempo = dados.get("tempo")
+        if tempo:
+            x0, x1, y0, y1 = PHASE_TEMPO_RECT[index]
+            px0, py0 = _scale_point(x0, y0)
+            px1, py1 = _scale_point(x1, y1)
+            patch_rect = pygame.Rect(int(px0), int(py0), max(1, int(px1 - px0)), max(1, int(py1 - py0)))
+            pygame.draw.rect(surface, _CARD_BG_PATCH, patch_rect)
+            texto_surf = _FONT_TEMPO_PROGRESSO.render(tempo, True, (225, 225, 232))
+            surface.blit(texto_surf, texto_surf.get_rect(center=patch_rect.center))
+
+    x0, x1, y0, y1 = COUNTER_TEXT_RECT
+    px0, py0 = _scale_point(x0, y0)
+    px1, py1 = _scale_point(x1, y1)
+    counter_rect = pygame.Rect(int(px0), int(py0), max(1, int(px1 - px0)), max(1, int(py1 - py0)))
+    pygame.draw.rect(surface, _COUNTER_BG_PATCH, counter_rect)
+    counter_surf = _FONT_COUNTER_PROGRESSO.render(f"{total_estrelas}/30", True, (140, 160, 235))
+    surface.blit(counter_surf, counter_surf.get_rect(center=counter_rect.center))
 
 
 _CHARACTER_IMAGE_FILES = {0: "personagem_parado.png", 1: "personagem_parada.png"}
@@ -199,8 +422,20 @@ class Game:
         # Para onde o VOLTAR das Opções deve retornar (main ou phases).
         self.options_return_to = "main"
 
+        # Progresso lido de Pygame/progresso.json (estrelas/tempo por fase)
+        # -- recarregado sempre que o mapa de fases é (re)construído, ver
+        # build_buttons(), pra já aparecer atualizado assim que o jogador
+        # volta de uma fase recém-concluída.
+        self.progresso = {}
+
         self.buttons = []
         self.build_buttons()
+
+        # Música de fundo do menu -- começa a tocar assim que o jogo abre
+        # (tela principal) e continua até o jogador entrar numa fase (ver
+        # do_action, onde é parada/retomada em volta de cada chamada de
+        # fase).
+        _iniciar_musica_menu()
 
     # ---------- textos ----------
     def t(self, key):
@@ -263,11 +498,32 @@ class Game:
                 self.buttons.append(Button((CX - 200, 570, 400, 50), self.t("btn_back"), "goto_options"))
 
         elif self.state == "phases":
+            self.progresso = _carregar_progresso()
             self.buttons.append(GlowButton(PHASES_BACK_RECT, "", "goto_main"))
             self.buttons.append(GlowButton(PHASES_SETTINGS_RECT, "", "goto_options_from_phases"))
             for i in range(10):
-                if i < self.unlocked_phases:
+                if self._fase_desbloqueada(i):
                     self.buttons.append(GlowButton(PHASE_RECTS[i], "", f"start_phase_{i}"))
+
+    # Mapeia o índice (0-based) de cada fase fora da ordem normal pra
+    # chave, em progresso.json, da fase da qual ela depende -- usado por
+    # _fase_desbloqueada(). Fase 4 (index 3) e Fase 9 (index 8) libera
+    # com a Fase 2 completa, já que as fases 3 e 6-8 ainda não existem;
+    # Fase 5 (index 4) já segue a ordem normal, depende só da Fase 4.
+    _DEPENDENCIA_DESBLOQUEIO = {3: "fase_2", 4: "fase_4", 8: "fase_2"}
+
+    def _fase_desbloqueada(self, index):
+        """Além do avanço sequencial normal (unlocked_phases), algumas
+        fases aqui liberam pulando direto pra dependência real (ver
+        _DEPENDENCIA_DESBLOQUEIO acima), porque as fases intermediárias
+        ainda não existem."""
+        if index < self.unlocked_phases:
+            return True
+        dependencia = self._DEPENDENCIA_DESBLOQUEIO.get(index)
+        if dependencia is None:
+            return False
+        progresso = _carregar_progresso()
+        return bool(progresso.get(dependencia, {}).get("completo"))
 
     # ---------- ações ----------
     def do_action(self, action):
@@ -276,7 +532,13 @@ class Game:
             self.build_buttons()
         elif action.startswith("start_phase_"):
             index = int(action.rsplit("_", 1)[-1])
-            if index < self.unlocked_phases:
+            if self._fase_desbloqueada(index):
+                # Música do menu para ANTES de entrar em qualquer fase --
+                # pygame.mixer.music só toca uma faixa por vez, então uma
+                # fase com música própria (Fase 2/9) já a substituiria,
+                # mas Fase_4/Fase_5 não tocam nada, e sem isso a música do
+                # menu ficaria tocando por baixo delas o jogo inteiro.
+                _parar_musica_menu()
                 if index == 1:
                     completed = run_fase2(
                         screen,
@@ -287,6 +549,73 @@ class Game:
                     )
                     if completed:
                         self.unlocked_phases = max(self.unlocked_phases, 3)
+                    _iniciar_musica_menu()
+                    self.build_buttons()
+                elif index == 8:
+                    # fase9 (módulo importado só agora, ver
+                    # _importar_ponto_de_entrada acima) não devolve
+                    # True/False e cria sua própria pygame.display.set_mode
+                    # (mesmo tamanho de REAL_SIZE, então não quebra a janela
+                    # do menu) -- por isso, diferente da Fase 2, é este
+                    # bloco que tem que parar a música e restaurar o título
+                    # da janela ao voltar, já que a Fase_9 não se limpa
+                    # sozinha (ver Pygame/Fase_9/fase9.py, Jogo.executar).
+                    fase9 = _importar_ponto_de_entrada(_FASE9_DIR, "fase9", "npc_chatbot")
+                    fase9.Jogo(
+                        character_image=CHARACTER_IMAGES.get(self.personagem_index),
+                        character_name=self.get_personagem_name(self.personagem_index),
+                        genero="m" if self.personagem_index == 0 else "f",
+                    ).executar()
+                    _importar_ponto_de_entrada(_FASE9_DIR, "audio_fase9").parar_tudo()
+                    pygame.display.set_caption("Escape.from_past()")
+                    _iniciar_musica_menu()
+                    self.build_buttons()
+                elif index in (3, 4):
+                    # Fase_4/fase4_atual.py e Fase_5/fase_5.py: mesmo
+                    # padrão de import tardio da Fase 9 (ver
+                    # _importar_ponto_de_entrada) -- as duas pastas têm
+                    # cada uma seu próprio npc_chatbot.py/inventario.py,
+                    # com o MESMO nome de módulo (mas conteúdo diferente)
+                    # que os da Fase 9, daí o cuidado de só importar na
+                    # hora do clique e limpar o cache antes.
+                    #
+                    # As duas já aceitam character_image/character_name/
+                    # genero (mesmo formato que Fase 2/9) e escolhem o
+                    # sprite certo sozinhas a partir do `genero` -- assim
+                    # o personagem escolhido aqui no menu continua o
+                    # mesmo em qualquer fase, não só nessas duas.
+                    # Nenhuma das duas toca música/efeito nenhum (sem
+                    # módulo de áudio próprio, nada pra parar aqui).
+                    #
+                    # Jogo.executar() delas só devolve algo (a string
+                    # "vitoria") quando o jogador vence e clica no botão
+                    # da tela de vitória; se ele fechar a janela (evento
+                    # QUIT) em qualquer outro momento, o laço delas mesmo
+                    # chama pygame.quit()/sys.exit() e encerra o programa
+                    # INTEIRO, não só a fase -- isso já é assim no código
+                    # delas (Pygame/Fase_4/fase4_atual.py e
+                    # Pygame/Fase_5/fase_5.py), fora do que dá pra
+                    # controlar daqui do menu.
+                    if index == 3:
+                        modulo = _importar_ponto_de_entrada(
+                            _FASE4_DIR, "fase4_atual", "npc_chatbot", "inventario"
+                        )
+                        chave_progresso = "fase_4"
+                    else:
+                        modulo = _importar_ponto_de_entrada(
+                            _FASE5_DIR, "fase_5", "npc_chatbot", "inventario"
+                        )
+                        chave_progresso = "fase_5"
+
+                    resultado = modulo.Jogo(
+                        character_image=CHARACTER_IMAGES.get(self.personagem_index),
+                        character_name=self.get_personagem_name(self.personagem_index),
+                        genero="m" if self.personagem_index == 0 else "f",
+                    ).executar()
+                    if resultado == "vitoria":
+                        _marcar_fase_completa(chave_progresso)
+                    pygame.display.set_caption("Escape.from_past()")
+                    _iniciar_musica_menu()
                     self.build_buttons()
                 else:
                     # TODO: conectar aqui a lógica real das demais fases.
@@ -442,6 +771,7 @@ class Game:
     def draw(self):
         if self.state == "phases":
             screen.blit(PHASES_BG, (0, 0))
+            desenhar_progresso_fases(screen, self.progresso)
             for i, btn in enumerate(self.buttons):
                 btn.draw(screen, selected=(i == self.selected_index))
             return
