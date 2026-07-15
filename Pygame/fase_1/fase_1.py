@@ -10,6 +10,7 @@ quebrado, resolve uma conta e libera a porta para a próxima fase.
 # é criado a janela com esse tamanho, é definido o título que aparece na barra
 # da janela, e é criado um "relógio" que controla quantas vezes por segundo
 # o jogo atualiza a tela (60 vezes por segundo, mais à frente no código).
+import math
 import os
 import pygame
 import random
@@ -38,8 +39,8 @@ def caminho_asset(nome_relativo):
 # ---------------------------------------------------------------------------
 # Janela do jogo
 # ---------------------------------------------------------------------------
-LARGURA_JANELA = 1000
-ALTURA_JANELA = 495
+LARGURA_JANELA = 960
+ALTURA_JANELA = 600
 
 tela = pygame.display.set_mode((LARGURA_JANELA, ALTURA_JANELA))
 pygame.display.set_caption("Escape Room - Fase do Ábaco")
@@ -63,9 +64,12 @@ ASSETS = {
     "fundo_quebrado": caminho_asset("assets/imagens/cenarios/fase_abaco/cenario_abaco_quebrado.png"),
     "fundo_consertado": caminho_asset("assets/imagens/cenarios/fase_abaco/cenario_abaco_consertado.png"),
     "gerbert_retrato": caminho_asset("assets/imagens/cenarios/fase_abaco/gerbert_retrato.png"),
+    "capsula_do_tempo": caminho_asset("assets/imagens/cenarios/fase_abaco/capsula_do_tempo.png"),
     "fonte_pixel": caminho_asset("assets/fontes/PressStart2P-Regular.ttf"),
     "pasta_personagem_1": caminho_asset("assets/imagens/personagem/"),
     "pasta_personagem_2": caminho_asset("assets/imagens/personagem2/"),
+    "musica_fundo": caminho_asset("assets/sons/musica_fundo.ogg"),
+    "som_clique": caminho_asset("assets/sons/som_clique.wav"),
 }
 
 # ---------------------------------------------------------------------------
@@ -102,7 +106,7 @@ fundo_atual = fundo_quebrado
 # caixa fixa — isso aumenta o personagem sem esticar ou distorcer nenhuma
 # das poses.
 # ---------------------------------------------------------------------------
-ALTURA_PERSONAGEM_ALVO = 260  # altura desejada para a pose parada (era ~170 e ficava pequena)
+ALTURA_PERSONAGEM_ALVO = 330  # ~27% maior que os 260px anteriores (era ~170 originalmente)
 
 
 def carregar_imagem_personagem(nome_arquivo, fator_escala):
@@ -150,6 +154,46 @@ def escalar_retangulo(x, y, largura, altura):
 
 AREA_ABACO = escalar_retangulo(315, 280, 210, 170)   # ábaco em cima da mesa
 AREA_PORTA = escalar_retangulo(1150, 230, 165, 295)  # porta do lado direito
+
+# ---------------------------------------------------------------------------
+# Cápsula do tempo: um objeto decorativo do cenário, apoiada no chão do
+# lado esquerdo da tela. Usa convert_alpha() para preservar a transparência
+# do PNG (diferente do fundo, que usa convert() porque ocupa a tela inteira
+# sem partes transparentes).
+#
+# O arquivo original (2624x1632) tem uma margem transparente enorme ao
+# redor do desenho (~66% da imagem é vazio) — isso fazia a cápsula parecer
+# pequena mesmo em alturas grandes, porque boa parte da altura/largura
+# "gasta" era espaço vazio. get_bounding_rect() encontra o retângulo exato
+# do conteúdo visível e recortamos só essa parte antes de redimensionar,
+# então toda a altura escolhida vira cápsula de verdade, sem desperdício.
+#
+# Isso também muda a proporção: sem a margem, o desenho é quase quadrado
+# (~1.05:1), bem diferente do 1.6:1 do canvas inteiro.
+#
+# Posição: a borda DIREITA fica ancorada quase encostando no início do
+# ábaco (perto da mesa, sem cobrir o ábaco) — esse é o ponto fixo. A altura
+# é definida diretamente (não mais "a máxima que cabe sem cortar"), então
+# se ela ficar larga demais para caber inteira, a borda ESQUERDA é que
+# passa da tela e é cortada; a base continua apoiada no chão na mesma
+# posição, então ela só cresce "para cima".
+# ---------------------------------------------------------------------------
+imagem_capsula_bruta = pygame.image.load(ASSETS["capsula_do_tempo"]).convert_alpha()
+imagem_capsula_original = imagem_capsula_bruta.subsurface(
+    imagem_capsula_bruta.get_bounding_rect(min_alpha=10)
+).copy()
+
+MARGEM_CAPSULA_ABACO = 5  # folga entre a cápsula e o início do ábaco, pra não encostar "grudado"
+ALTURA_CAPSULA_ALVO = 330  # ~18% maior que os 280px anteriores
+_fator_escala_capsula = ALTURA_CAPSULA_ALVO / imagem_capsula_original.get_height()
+
+imagem_capsula = pygame.transform.scale(
+    imagem_capsula_original,
+    (round(imagem_capsula_original.get_width() * _fator_escala_capsula), ALTURA_CAPSULA_ALVO),
+)
+
+CAPSULA_POS_X = AREA_ABACO.left - MARGEM_CAPSULA_ABACO - imagem_capsula.get_width()
+CAPSULA_POS_Y = ALTURA_JANELA - 20 - imagem_capsula.get_height()  # apoiada no chão
 
 # ---------------------------------------------------------------------------
 # Gerbert de Aurillac aparece como um retrato redondo (recortado em círculo
@@ -220,23 +264,44 @@ ACERTOS_NECESSARIOS = 3
 acertos_atuais = 0
 
 # ---------------------------------------------------------------------------
-# A conversa com o Gerbert tem duas falas fixas no início (sem IA, então
-# nunca travam) e depois libera uma conversa livre opcional usando IA:
+# MELHORIA 3 (contador de tentativas): conta quantas vezes o jogador
+# confirmou uma resposta na conta matemática, certa ou errada — só pra dar
+# sensação de progresso, não limita nem pune o jogador.
+# ---------------------------------------------------------------------------
+tentativas_abaco = 0
+
+# ---------------------------------------------------------------------------
+# MELHORIA 4 (efeito ao acertar): partículas (pequenas "faíscas") que voam
+# a partir do ábaco quando o jogador acerta uma conta, e um flash rápido de
+# cor que cobre a tela por alguns quadros. Cada partícula é um dicionário
+# com posição, velocidade, vida restante (em quadros) e cor.
+# ---------------------------------------------------------------------------
+particulas_acerto = []
+tempo_flash_acerto = 0  # quantos quadros o flash ainda deve aparecer
+
+# ---------------------------------------------------------------------------
+# A caixinha do Gerbert só aparece quando o jogador clica no ícone dele — a
+# conversa NÃO abre sozinha no início. A conversa tem duas falas fixas no
+# começo (sem IA, então nunca travam) e depois libera uma conversa livre
+# opcional usando IA:
+#   0) ETAPA_NAO_INICIADA -> estado inicial, caixinha fechada; o primeiro
+#      clique no ícone do Gerbert abre a caixinha e começa a apresentação.
 #   1) ETAPA_APRESENTACAO -> Gerbert pergunta quem o jogador é/de onde veio;
 #      o jogador digita algo e aperta Enter para continuar.
 #   2) ETAPA_DICA_ABACO   -> Gerbert avisa sobre o ábaco quebrado; Enter
 #      fecha a caixinha e libera o jogo normal.
-#   3) ETAPA_PRONTO       -> caixinha fechada, esperando um clique no
-#      Gerbert para reabrir a conversa livre.
+#   3) ETAPA_PRONTO       -> caixinha fechada, esperando um novo clique no
+#      Gerbert para abrir a conversa livre.
 #   4) ETAPA_LIVRE        -> conversa livre, usando IA para as respostas.
 # ---------------------------------------------------------------------------
+ETAPA_NAO_INICIADA = "nao_iniciada"
 ETAPA_APRESENTACAO = "apresentacao"
 ETAPA_DICA_ABACO = "dica_abaco"
 ETAPA_PRONTO = "pronto"
 ETAPA_LIVRE = "livre"
 
-etapa_conversa_gerbert = ETAPA_APRESENTACAO
-caixa_gerbert_aberta = True     # a conversa inicial já abre sozinha no começo do jogo
+etapa_conversa_gerbert = ETAPA_NAO_INICIADA
+caixa_gerbert_aberta = False    # só abre quando o jogador clica no ícone do Gerbert
 texto_digitado_gerbert = ""     # o que o jogador está digitando no momento
 resposta_gerbert = ""           # última resposta da IA (só usada na conversa livre)
 gerbert_pensando = False        # true enquanto espera a IA responder
@@ -366,6 +431,7 @@ ESPACAMENTO_LINHA = 16  # distância vertical entre linhas de texto quebrado
 
 fonte = pygame.font.Font(ASSETS["fonte_pixel"], 10)
 fonte_grande = pygame.font.Font(ASSETS["fonte_pixel"], 16)
+fonte_vitoria = pygame.font.Font(ASSETS["fonte_pixel"], 24)  # usada só na mensagem de vitória na porta
 
 
 def desenhar_texto_multilinha(superficie, texto, fonte_usada, cor, x, y, largura_maxima, espacamento=ESPACAMENTO_LINHA):
@@ -376,6 +442,117 @@ def desenhar_texto_multilinha(superficie, texto, fonte_usada, cor, x, y, largura
         superficie.blit(fonte_usada.render(linha, True, cor), (x, y))
         y += espacamento
     return y
+
+
+# ---------------------------------------------------------------------------
+# Desenha um texto com contorno grosso: renderiza o texto várias vezes na
+# cor do contorno, deslocado alguns pixels em cada direção ao redor do
+# centro, e por cima desenha o texto de verdade na cor principal — a
+# técnica clássica de jogos retrô pra garantir contraste em cima de
+# qualquer fundo, sem precisar de imagem nenhuma.
+# ---------------------------------------------------------------------------
+def desenhar_texto_com_contorno(superficie, texto, fonte_usada, cor_texto, cor_contorno, centro_x, centro_y, espessura=2):
+    superficie_texto = fonte_usada.render(texto, True, cor_texto)
+    superficie_contorno = fonte_usada.render(texto, True, cor_contorno)
+    rect_texto = superficie_texto.get_rect(center=(centro_x, centro_y))
+
+    for dx in (-espessura, 0, espessura):
+        for dy in (-espessura, 0, espessura):
+            if dx == 0 and dy == 0:
+                continue
+            superficie.blit(superficie_contorno, (rect_texto.x + dx, rect_texto.y + dy))
+
+    superficie.blit(superficie_texto, rect_texto)
+
+
+# ---------------------------------------------------------------------------
+# MELHORIA 1 (feedback visual no ábaco): desenha um contorno dourado
+# pulsante ao redor de AREA_ABACO quando o mouse está em cima, indicando
+# que é clicável. Usa uma superfície separada com SRCALPHA porque
+# pygame.draw não desenha com transparência direto na tela.
+# ---------------------------------------------------------------------------
+def desenhar_brilho_abaco(superficie, area, tempo_ms):
+    pulso = (math.sin(tempo_ms / 200) + 1) / 2  # oscila suavemente entre 0 e 1
+    expansao = round(4 + pulso * 6)             # o contorno "respira" entre 4 e 10px de folga
+    alpha = round(120 + pulso * 100)             # e também varia de opacidade (120 a 220)
+
+    contorno = area.inflate(expansao * 2, expansao * 2)
+    brilho = pygame.Surface(contorno.size, pygame.SRCALPHA)
+    pygame.draw.rect(brilho, (255, 220, 80, alpha), brilho.get_rect(), width=4, border_radius=8)
+    superficie.blit(brilho, contorno.topleft)
+
+
+# ---------------------------------------------------------------------------
+# MELHORIA 4 (efeito ao acertar): cria as partículas que "explodem" a
+# partir do centro do ábaco e liga o flash de tela, chamada toda vez que o
+# jogador acerta uma conta.
+# ---------------------------------------------------------------------------
+CORES_PARTICULA_ACERTO = [(255, 215, 0), (255, 255, 255), (255, 190, 60)]
+
+
+def disparar_efeito_acerto():
+    global tempo_flash_acerto
+    tempo_flash_acerto = 10
+    for _ in range(18):
+        angulo = random.uniform(0, 2 * math.pi)
+        velocidade = random.uniform(1.5, 4)
+        particulas_acerto.append({
+            "x": float(AREA_ABACO.centerx),
+            "y": float(AREA_ABACO.centery),
+            "vx": math.cos(angulo) * velocidade,
+            "vy": math.sin(angulo) * velocidade,
+            "vida": random.randint(20, 40),
+            "cor": random.choice(CORES_PARTICULA_ACERTO),
+        })
+
+
+# ---------------------------------------------------------------------------
+# MELHORIA 2 (tela de introdução): mostrada uma única vez antes do jogo
+# começar, com um texto situando o jogador na história. Fica num loop
+# próprio (igual ao loop principal, mas mais simples) até o jogador
+# apertar qualquer tecla.
+# ---------------------------------------------------------------------------
+TEXTO_INTRODUCAO = (
+    "Ano 1000. Você acordou numa sala estranha, cercado por pergaminhos "
+    "e um velho ábaco quebrado. Alguém te observa das sombras..."
+)
+
+
+def tela_introducao():
+    aguardando = True
+    while aguardando:
+        relogio.tick(60)
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if evento.type == pygame.KEYDOWN:
+                aguardando = False
+
+        tela.fill((12, 10, 18))
+        desenhar_texto_multilinha(
+            tela, TEXTO_INTRODUCAO, fonte_grande, (230, 230, 230),
+            60, ALTURA_JANELA // 2 - 100, LARGURA_JANELA - 120, espacamento=30,
+        )
+
+        texto_continuar = fonte.render("Pressione qualquer tecla para começar", True, (170, 170, 170))
+        tela.blit(texto_continuar, (LARGURA_JANELA // 2 - texto_continuar.get_width() // 2, ALTURA_JANELA - 60))
+
+        pygame.display.flip()
+
+
+# ---------------------------------------------------------------------------
+# Sons do jogo: a música de fundo começa a tocar em loop assim que o jogo
+# abre, num volume moderado para não atrapalhar; o som de clique é tocado
+# nas interações importantes (clicar no ábaco, clicar no Gerbert).
+# ---------------------------------------------------------------------------
+pygame.mixer.music.load(ASSETS["musica_fundo"])
+pygame.mixer.music.set_volume(0.35)
+pygame.mixer.music.play(-1)  # -1 = toca em loop infinito
+
+som_clique = pygame.mixer.Sound(ASSETS["som_clique"])
+
+tela_introducao()
 
 # ---------------------------------------------------------------------------
 # Loop principal do jogo: roda continuamente a 60 quadros por segundo,
@@ -394,16 +571,26 @@ while rodando:
         if evento.type == pygame.MOUSEBUTTONDOWN:
             if not cenario_consertado and not caixa_matematica_aberta and not caixa_gerbert_aberta:
                 if AREA_ABACO.collidepoint(evento.pos):
+                    som_clique.play()
                     caixa_matematica_aberta = True
                     resposta_digitada = ""
                     gerar_nova_conta()
 
-            # Depois que a conversa inicial (fixa) termina, clicar no Gerbert
-            # abre uma conversa livre com ele, usando a IA.
-            if not caixa_matematica_aberta and not caixa_gerbert_aberta and etapa_conversa_gerbert == ETAPA_PRONTO:
+            # Clicar no ícone do Gerbert abre a caixinha: da primeira vez,
+            # começa a apresentação fixa; nas próximas vezes (depois que a
+            # introdução já terminou), abre a conversa livre com a IA.
+            if (
+                not caixa_matematica_aberta
+                and not caixa_gerbert_aberta
+                and etapa_conversa_gerbert in (ETAPA_NAO_INICIADA, ETAPA_PRONTO)
+            ):
                 if AREA_GERBERT.collidepoint(evento.pos):
+                    som_clique.play()
                     caixa_gerbert_aberta = True
-                    etapa_conversa_gerbert = ETAPA_LIVRE
+                    if etapa_conversa_gerbert == ETAPA_NAO_INICIADA:
+                        etapa_conversa_gerbert = ETAPA_APRESENTACAO
+                    else:
+                        etapa_conversa_gerbert = ETAPA_LIVRE
                     texto_digitado_gerbert = ""
                     resposta_gerbert = ""
                     gerbert_pensando = False
@@ -424,7 +611,9 @@ while rodando:
         if evento.type == pygame.KEYDOWN and caixa_matematica_aberta:
             if evento.key == pygame.K_RETURN:
                 if resposta_digitada != "":
+                    tentativas_abaco += 1  # MELHORIA 3: conta toda confirmação, certa ou errada
                     if int(resposta_digitada) == resposta_correta:
+                        disparar_efeito_acerto()  # MELHORIA 4: partículas + flash
                         acertos_atuais += 1
                         resposta_digitada = ""
                         if acertos_atuais >= ACERTOS_NECESSARIOS:
@@ -548,20 +737,99 @@ while rodando:
     # Desenho da tela e do personagem
     # -----------------------------------------------------------------------
     tela.blit(fundo_atual, (0, 0))
+
+    # Cápsula do tempo, parada no chão do cenário.
+    tela.blit(imagem_capsula, (CAPSULA_POS_X, CAPSULA_POS_Y))
+
     tela.blit(imagem_personagem, (personagem_pos_x, personagem_pos_y))
 
     # Ícone redondo do Gerbert, fixo num canto da tela; depois da conversa
     # inicial, clicar nele abre a conversa livre.
     tela.blit(imagem_gerbert_icone, (AREA_GERBERT.x, AREA_GERBERT.y))
 
+    # -----------------------------------------------------------------------
+    # MELHORIA 1: brilho pulsante ao redor do ábaco quando o mouse está em
+    # cima dele, só enquanto ele ainda não foi consertado e nenhuma
+    # caixinha está aberta (senão o brilho ficaria por baixo delas à toa).
+    # -----------------------------------------------------------------------
+    mouse_pos = pygame.mouse.get_pos()
+    if (
+        not cenario_consertado
+        and not caixa_matematica_aberta
+        and not caixa_gerbert_aberta
+        and AREA_ABACO.collidepoint(mouse_pos)
+    ):
+        desenhar_brilho_abaco(tela, AREA_ABACO, pygame.time.get_ticks())
+
+    # -----------------------------------------------------------------------
+    # MELHORIA 4: atualiza e desenha as partículas do efeito de acerto (cada
+    # uma anda um pouco e perde "vida"; quando a vida acaba, ela some), e o
+    # flash de cor que cobre a tela por alguns quadros logo após acertar.
+    # -----------------------------------------------------------------------
+    for particula in particulas_acerto[:]:
+        particula["x"] += particula["vx"]
+        particula["y"] += particula["vy"]
+        particula["vida"] -= 1
+        if particula["vida"] <= 0:
+            particulas_acerto.remove(particula)
+        else:
+            raio = max(1, particula["vida"] // 8)
+            pygame.draw.circle(tela, particula["cor"], (round(particula["x"]), round(particula["y"])), raio)
+
+    if tempo_flash_acerto > 0:
+        superficie_flash = pygame.Surface((LARGURA_JANELA, ALTURA_JANELA), pygame.SRCALPHA)
+        alpha_flash = round(150 * (tempo_flash_acerto / 10))
+        superficie_flash.fill((255, 255, 200, alpha_flash))
+        tela.blit(superficie_flash, (0, 0))
+        tempo_flash_acerto -= 1
+
+    # -----------------------------------------------------------------------
+    # MELHORIA 3: contador de tentativas, num canto discreto (com um fundo
+    # semitransparente atrás, só pra ficar legível em cima do cenário).
+    # -----------------------------------------------------------------------
+    texto_tentativas = fonte.render(f"Tentativas: {tentativas_abaco}", True, (255, 255, 255))
+    pos_tentativas_x = LARGURA_JANELA - texto_tentativas.get_width() - 15
+    fundo_tentativas = pygame.Surface(
+        (texto_tentativas.get_width() + 10, texto_tentativas.get_height() + 6), pygame.SRCALPHA
+    )
+    fundo_tentativas.fill((0, 0, 0, 120))
+    tela.blit(fundo_tentativas, (pos_tentativas_x - 5, 12))
+    tela.blit(texto_tentativas, (pos_tentativas_x, 15))
+
     if tempo_mensagem > 0:
         texto = fonte_grande.render(mensagem_atual, True, (255, 255, 0))
         tela.blit(texto, (LARGURA_JANELA // 2 - texto.get_width() // 2, 30))
         tempo_mensagem -= 1
 
+    # -----------------------------------------------------------------------
+    # Mensagem de vitória, com visual de jogo retrô: fonte pixelada grande,
+    # texto branco com contorno preto (desenhar_texto_com_contorno), um
+    # fundo escuro semitransparente atrás pra destacar do cenário, e um
+    # pulsar suave na opacidade do fundo pra chamar atenção sem cansar.
+    # -----------------------------------------------------------------------
     if chegou_na_porta:
-        texto_porta = fonte_grande.render("Você passou para a segunda fase!", True, (0, 255, 0))
-        tela.blit(texto_porta, (LARGURA_JANELA // 2 - texto_porta.get_width() // 2, 30))
+        TEXTO_VITORIA = "Você passou para a segunda fase!"
+        centro_vitoria_x = LARGURA_JANELA // 2
+        centro_vitoria_y = 60
+
+        medida_texto = fonte_vitoria.size(TEXTO_VITORIA)
+        largura_fundo_vitoria = medida_texto[0] + 40
+        altura_fundo_vitoria = medida_texto[1] + 24
+
+        pulso_vitoria = (math.sin(pygame.time.get_ticks() / 250) + 1) / 2  # 0 a 1, suave
+        alpha_fundo_vitoria = round(140 + pulso_vitoria * 60)
+
+        fundo_vitoria = pygame.Surface((largura_fundo_vitoria, altura_fundo_vitoria), pygame.SRCALPHA)
+        fundo_vitoria.fill((0, 0, 0, alpha_fundo_vitoria))
+        tela.blit(fundo_vitoria, (
+            centro_vitoria_x - largura_fundo_vitoria // 2,
+            centro_vitoria_y - altura_fundo_vitoria // 2,
+        ))
+
+        desenhar_texto_com_contorno(
+            tela, TEXTO_VITORIA, fonte_vitoria, (255, 255, 255), (0, 0, 0),
+            centro_vitoria_x, centro_vitoria_y,
+        )
     #----------------------------------------------------------
     # Desenha a caixa da conta matemática: fundo, texto da conta, campo
     # de resposta e instrução.
