@@ -1,1 +1,12 @@
-{}
+{
+  "fase_2": {
+    "estrelas": 3,
+    "completo": true,
+    "tempo": "00:27"
+  },
+  "fase_valvulas": {
+    "estrelas": 3,
+    "completo": true,
+    "tempo": "00:25"
+  }
+}

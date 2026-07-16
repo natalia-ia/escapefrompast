@@ -476,13 +476,13 @@ class Jogo:
             "FUNDO DA CENA 3\n(segunda sala)",
         )
         self.img_cofre = carregar_imagem(
-            ASSETS["cofre"], (120, 140), (80, 80, 85), "COFRE",
+            ASSETS["cofre"], (150, 260), (80, 80, 85), "COFRE",
         )
         self.img_computador = carregar_imagem(
-            ASSETS["computador"], (220, 260), CINZA_METAL, "COMPUTADOR\nSYSTEM/360",
+            ASSETS["computador"], (160, 140), CINZA_METAL, "COMPUTADOR\nSYSTEM/360",
         )
         self.img_capsula_tempo = carregar_imagem(
-            ASSETS["capsula_tempo"], (140, 160), (110, 100, 70), "CÁPSULA\nDO TEMPO",
+            ASSETS["capsula_tempo"], (235, 426), (110, 100, 70), "CÁPSULA\nDO TEMPO",
         )
         self.img_modulo = carregar_imagem(
             ASSETS["modulo_compatibilidade"], (90, 60), AMARELO_SEPIA, "MÓDULO",
@@ -504,7 +504,7 @@ class Jogo:
             "FUNDO DA CENA DE\nDICA 2 (compatibilidade)",
         )
         self.img_seta_direita = carregar_imagem(
-            ASSETS["seta_direita"], (60, 60), (0, 0, 0), "",
+            ASSETS["seta_direita"], (70, 65), (0, 0, 0), "",
         ) if os.path.isfile(ASSETS["seta_direita"]) else None
 
         self.img_avatar_parado = carregar_imagem(
@@ -578,7 +578,7 @@ class Jogo:
         # AJUSTE a posição para onde a impressora aparece no seu fundo.
         self.rect_impressora = self.img_impressora.get_rect(midbottom=(600, ALTURA - 70))
         self.ponto_interacao_impressora = (
-            self.rect_impressora.left - 30,
+            self.rect_impressora.left - 1,
             self.jogador.rect.centery,
         )
 
@@ -607,7 +607,7 @@ class Jogo:
 
         # --- Seta de navegação (Cena 1 -> Cena 3) ---
         self.rect_seta_avancar = pygame.Rect(0, 0, 56, 56)
-        self.rect_seta_avancar.midright = (LARGURA - 80, ALTURA // 2 + 40)
+        self.rect_seta_avancar.midright = (LARGURA - 85, ALTURA // 2 + 50)
         self.ponto_interacao_seta = (
             self.rect_seta_avancar.left - 40,
             self.jogador.rect.centery,
@@ -616,15 +616,15 @@ class Jogo:
         self.proximo_estado_ao_chegar = None
 
         # --- Cofre (Cena 3) -> abre a Cena 2 ---
-        self.rect_cofre = self.img_cofre.get_rect(midright=(LARGURA - 480, ALTURA - 260))
+        self.rect_cofre = self.img_cofre.get_rect(midright=(180, ALTURA - 315))
         self.ponto_interacao_cofre = (
-            self.rect_cofre.left - 30,
+            max(self.rect_cofre.left - 30, 90),
             self.rect_cofre.bottom - 10,
         )
         self.papel_encontrado = False   # cartão perfurado já coletado?
 
         # --- Computador (Cena 3) -> libera o módulo de compatibilidade ---
-        self.rect_computador = self.img_computador.get_rect(midright=(LARGURA - 160, ALTURA - 230))
+        self.rect_computador = self.img_computador.get_rect(midright=(LARGURA - 330, ALTURA - 275))
         self.ponto_interacao_computador = (
             self.rect_computador.left - 30,
             self.rect_computador.bottom - 10,
@@ -634,7 +634,7 @@ class Jogo:
         self.modulo_entregue = False     # módulo já foi solto na cápsula?
 
         # --- Cápsula do tempo (Cena 3) -> alvo do arrasto do módulo ---
-        self.rect_capsula = self.img_capsula_tempo.get_rect(bottomleft=(40, ALTURA - 40))
+        self.rect_capsula = self.img_capsula_tempo.get_rect(bottomleft=(730, ALTURA - 55))
 
         # --- Módulo de compatibilidade (arrastável, some do computador) ---
         self.rect_modulo_posicao_inicial = self.img_modulo.get_rect(
@@ -903,18 +903,37 @@ class Jogo:
         self.desenhar_botao_inventario()
         config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
-        titulo = self.fonte_texto.render(
-            "Descubra a senha do cofre:", True, BRANCO,
+        linha1 = self.fonte_texto.render(
+            "Descubra a senha do cofre:", True, BRANCO
         )
-        self.tela.blit(titulo, titulo.get_rect(center=(LARGURA // 2, 160)))
+
+        linha2 = self.fonte_texto.render(
+            "Dica: Ano Lançamento IBM", True, BRANCO
+        )
+
+        # Centralizando cada linha
+        rect1 = linha1.get_rect(center=(LARGURA // 2, 160))
+        rect2 = linha2.get_rect(center=(LARGURA // 2, 200))  # mais abaixo
+
+        # Desenhando na tela
+        self.tela.blit(linha1, rect1)
+        self.tela.blit(linha2, rect2)
 
         self.cofre_senha.desenhar(self.tela, self.fonte_titulo)
 
-        instrucao = self.fonte_pequena.render(
-            "Clique em cima do quadrado para aumentar, embaixo para diminuir "
-            "(ou use a rodinha do mouse).", True, CINZA_CLARO,
+        linha1 = self.fonte_pequena.render(
+            "Clique em cima do quadrado para aumentar,", True, CINZA_CLARO
         )
-        self.tela.blit(instrucao, instrucao.get_rect(center=(LARGURA // 2, 400)))
+
+        linha2 = self.fonte_pequena.render(
+            "embaixo para diminuir (ou use o scroll do mouse).", True, CINZA_CLARO
+        )
+
+        rect1 = linha1.get_rect(center=(LARGURA // 2, 400))
+        rect2 = linha2.get_rect(center=(LARGURA // 2, 430))  # ajusta o espaçamento
+
+        self.tela.blit(linha1, rect1)
+        self.tela.blit(linha2, rect2)
 
         dica_voltar = self.fonte_pequena.render("ESC para voltar à sala", True, CINZA_CLARO)
         self.tela.blit(dica_voltar, (20, ALTURA - 35))
@@ -960,7 +979,7 @@ class Jogo:
         config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         titulo = self.fonte_texto.render(
-            "Reordene as letras e números do relatório da impressora:", True, BRANCO,
+            "Reordene as letras e números do relatório da impressora:", True, AZUL_IBM,
         )
         self.tela.blit(titulo, titulo.get_rect(center=(LARGURA // 2, 180)))
 
