@@ -38,6 +38,7 @@ Execução:   python escape_room_turing.py
 =====================================================================
 """
 
+import json
 import os
 import string
 import sys
@@ -45,8 +46,8 @@ import math
 import pygame
 from inventario import Inventario, ItemColecionavel
 from npc_chatbot import NPCChatbot
-import audio_fase5        
-import config_fase5 
+import audio_fase5
+import config_fase5
 
 # =====================================================================
 # 1. CONFIGURAÇÕES GERAIS DA JANELA E DO JOGO
@@ -87,6 +88,89 @@ def caminho_asset(nome_relativo):
     """Monta o caminho absoluto de um asset a partir da pasta 'assets'
     ao lado deste arquivo .py."""
     return os.path.join(PASTA_DO_SCRIPT, nome_relativo)
+
+
+# ---------------------------------------------------------------------------
+# Progresso (estrelas + tempo) -- mesmo arquivo/formato compartilhado que
+# Fase_2/fase2/puzzles/babbage_lovelace.py, Fase_9/puzzle_terminal.py e
+# Fase_5/fase_5_atualizada.py já usam: {"estrelas": 1-3, "completo": true,
+# "tempo": "MM:SS"} ("tempo" é quanto o jogador LEVOU pra resolver, não
+# quanto sobrou no timer). Fica na raiz de Pygame/ (uma pasta acima
+# desta, Fase_4/ -> Pygame/), fora de qualquer fase específica -- mesmo
+# espírito autocontido do resto do repositório (cada fase grava sua
+# própria chave, sem importar de outra).
+# ---------------------------------------------------------------------------
+_PYGAME_DIR = os.path.dirname(PASTA_DO_SCRIPT)
+PROGRESSO_PATH = os.path.join(_PYGAME_DIR, "progresso.json")
+PROGRESSO_CHAVE_FASE = "fase_4"
+
+
+def _carregar_progresso():
+    """Lê Pygame/progresso.json inteiro (de todas as fases). Devolve um
+    dicionário vazio se o arquivo ainda não existir ou vier corrompido --
+    assim a gente nunca trava tentando salvar só porque o arquivo está
+    ausente ou malformado."""
+    if not os.path.exists(PROGRESSO_PATH):
+        return {}
+    try:
+        with open(PROGRESSO_PATH, "r", encoding="utf-8") as arquivo:
+            return json.load(arquivo)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _salvar_progresso(estrelas, tempo_formatado):
+    """Grava `estrelas` (1 a 3, ver _calcular_estrelas) e
+    `tempo_formatado` ("MM:SS", o tempo que o jogador LEVOU) na chave
+    PROGRESSO_CHAVE_FASE do progresso.json compartilhado, preservando as
+    chaves de outras fases que já estiverem lá.
+
+    Nunca sobrescreve um resultado MELHOR já salvo: se o jogador já tinha
+    completado essa fase antes com estrelas >= as de agora E aquele
+    registro já tem um tempo salvo, não mexe em nada. Mas se o registro
+    antigo só tem {"completo": true} (ex: gravado pelo menu antes desta
+    função existir, ver Pygame/menu/jogo.py _marcar_fase_completa) ou tem
+    estrelas iguais/melhores sem "tempo", preenche o que falta sem piorar
+    a contagem de estrelas já conquistada."""
+    progresso = _carregar_progresso()
+    anterior = progresso.get(PROGRESSO_CHAVE_FASE)
+    if anterior is not None and anterior.get("estrelas", 0) >= estrelas:
+        if anterior.get("tempo") is not None:
+            return
+        novo_registro = {**anterior, "estrelas": anterior.get("estrelas", estrelas), "completo": True, "tempo": tempo_formatado}
+    else:
+        novo_registro = {"estrelas": estrelas, "completo": True, "tempo": tempo_formatado}
+
+    progresso[PROGRESSO_CHAVE_FASE] = novo_registro
+    with open(PROGRESSO_PATH, "w", encoding="utf-8") as arquivo:
+        json.dump(progresso, arquivo, indent=2, ensure_ascii=False)
+
+
+# Limiares de estrelas -- baseados no tempo RESTANTE no timer no instante
+# em que o jogador vence (mesmos limiares usados na Fase 2, na Fase 9 e
+# na Fase 5, pra estrela significar a mesma coisa em todas as fases).
+ESTRELAS_3_TEMPO_MIN = 25  # >= 25s sobrando -> 3 estrelas
+ESTRELAS_2_TEMPO_MIN = 15  # 15 a 24s sobrando -> 2 estrelas
+# < 15s sobrando -> 1 estrela (ver _calcular_estrelas)
+
+
+def _calcular_estrelas(tempo_restante):
+    """Devolve 1, 2 ou 3 conforme `tempo_restante` (segundos ainda no
+    timer quando o jogador venceu) contra os limiares acima. Esta fase
+    tem timer (TEMPO_LIMITE_SEGUNDOS), então sempre usa esta conta; uma
+    fase sem timer daria 1 estrela fixa por completar (não é o caso
+    aqui)."""
+    if tempo_restante >= ESTRELAS_3_TEMPO_MIN:
+        return 3
+    if tempo_restante >= ESTRELAS_2_TEMPO_MIN:
+        return 2
+    return 1
+
+
+def _formatar_tempo(segundos):
+    """Formata `segundos` (int/float) como "MM:SS"."""
+    total = max(0, int(segundos))
+    return f"{total // 60:02d}:{total % 60:02d}"
 
 
 ASSETS = {
@@ -979,6 +1063,18 @@ class Jogo:
         estiver correta, vai DIRETO para a tela de Vitória."""
         if self.caixa_resposta_cena4.texto == SENHA_CAPSULA:
             self.estado = Jogo.VITORIA
+            # Estrelas calculadas com o tempo QUE SOBROU no timer neste
+            # instante exato (antes de reiniciar()/um novo cronômetro
+            # zerar ticks_inicio) -- mesmo ponto de cálculo que
+            # babbage_lovelace.py, puzzle_terminal.py e
+            # fase_5_atualizada.py usam. Não é mostrado nesta tela (ver
+            # Pygame/Fase_2/fase2/fase2.py e Pygame/Fase_9/fase9.py, onde
+            # as estrelas também só aparecem no mapa, não no final da
+            # fase) -- só calculado e salvo aqui.
+            tempo_restante = self.tempo_restante_segundos()
+            estrelas = _calcular_estrelas(tempo_restante)
+            tempo_gasto = TEMPO_LIMITE_SEGUNDOS - tempo_restante
+            _salvar_progresso(estrelas, _formatar_tempo(tempo_gasto))
         else:
             self.mensagem_erro_cena4 = "Senha incorreta. Tente novamente!"
             self.caixa_resposta_cena4.texto = ""

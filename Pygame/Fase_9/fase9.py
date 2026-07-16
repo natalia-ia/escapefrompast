@@ -374,11 +374,15 @@ class Jogador:
     INTERVALO_ANIMACAO_MS = 150
 
     def __init__(self, frame_parado, frames_andando, posicao_inicial):
+        # self.pos guarda os PÉS do personagem (não o centro do sprite) --
+        # é essa mesma referência que o desenho (midbottom) e a colisão
+        # (_posicao_permitida) usam, então o personagem sempre aparece
+        # exatamente onde a colisão diz que ele está.
         self.frame_parado = frame_parado
         self.frames_andando = frames_andando  # [andando1, andando2]
         self.indice_animacao = 0
         self.tempo_ultimo_frame = pygame.time.get_ticks()
-        self.imagem = self.frame_parado
+        self.imagem = self.frame_parado  # começa parado, olhando pra frente
         self.pos = pygame.Vector2(posicao_inicial)
 
     def mover(self, teclas, floor_rect):
@@ -433,6 +437,11 @@ class Jogador:
         return chegou
 
     def _atualizar_sprite(self, esta_andando):
+        # Decide qual frame mostrar: parado sempre usa o mesmo frame (e
+        # reseta o índice, pra próxima caminhada sempre começar do
+        # primeiro frame); andando alterna entre os dois frames de
+        # caminhada a cada INTERVALO_ANIMACAO_MS (não a cada chamada,
+        # senão a troca de frame ficaria rápida demais a 60fps).
         if not esta_andando:
             self.imagem = self.frame_parado
             self.indice_animacao = 0

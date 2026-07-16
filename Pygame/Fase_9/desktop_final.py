@@ -164,6 +164,9 @@ def _icone_hit_rect(pos):
 
 
 def _desenhar_icone(tela, pos, rotulo, fonte, cor_rotulo):
+    # Ícone genérico de pasta (retângulo sólido + borda) com o rótulo
+    # centralizado embaixo -- usado tanto pros ícones do desktop quanto,
+    # em outra escala, dentro das janelas de pasta (ver _linhas_da_janela).
     icone_rect = pygame.Rect(0, 0, 40, 34)
     icone_rect.center = pos
     pygame.draw.rect(tela, DESKTOP_ICONE_PASTA_COR, icone_rect)
@@ -217,6 +220,10 @@ def _rects_barra_menu(fonte):
 
 
 def _rects_dropdown(rect_label, itens, fonte):
+    # Um retângulo por item do menu dropdown, empilhados verticalmente
+    # logo abaixo do item da barra de menu que abriu ele (`rect_label`) --
+    # todos com a MESMA largura (a do item mais largo + margem), pra
+    # ficarem alinhados como um menu de verdade.
     largura_max = max(fonte.size(item["rotulo"])[0] for item in itens) + 24
     rects = []
     y = rect_label.bottom
@@ -249,10 +256,15 @@ def _abrir_janela(janelas, id_janela, titulo, tipo, conteudo, largura_janela, al
 
 
 def _abrir_pasta_raiz(janelas, id_base, titulo, pasta_dict):
+    # Atalho pra _abrir_janela com o tamanho/tipo já fixados -- usado
+    # pelos ícones do desktop (ver _executar_acao_menu/tratamento de
+    # clique nos ícones), que só precisam saber QUAL pasta abrir.
     _abrir_janela(janelas, id_base, titulo, "pasta_raiz", pasta_dict, 380, 260)
 
 
 def _abrir_programa(janelas):
+    # Mesma ideia de _abrir_pasta_raiz, mas pra janela fixa do
+    # PROGRAMA.EXE (onde o jogador digita o código de ativação final).
     _abrir_janela(janelas, "programa", "PROGRAMA.EXE", "programa", None, 420, 210)
 
 
@@ -322,6 +334,11 @@ def _tentar_codigo(janela_programa):
 
 
 def _executar_acao_menu(item, janelas):
+    # Chamado quando o jogador clica num item de um dropdown da barra de
+    # menu (ver _rects_dropdown) -- cada item da barra (Arquivo/Editar/
+    # Exibir/Ajuda) define suas próprias ações em ITENS_BARRA_MENU, então
+    # esta função só sabe interpretar os dois tipos que existem hoje:
+    # abrir a pasta DADOS, ou mostrar uma mensagem fixa (Ajuda/Sobre).
     if item["acao"] == "abrir_dados":
         _abrir_pasta_raiz(janelas, "dados", "DADOS", PASTA_DADOS)
     elif item["acao"] == "mensagem":
@@ -353,6 +370,12 @@ def _contexto_dinamico(partes_encontradas):
 
 
 def _desenhar_conteudo_janela(tela, janela, linhas, mouse_pos, fontes):
+    """Desenha o CORPO de uma janela já aberta, de acordo com o `tipo`
+    dela: lista de linhas clicáveis (pasta_raiz/pasta_filha, ver
+    _linhas_da_janela), um bloco de texto fixo (mensagem) ou o campo de
+    digitação + botão EXECUTAR do código de ativação (programa). A barra
+    de título/borda já foi desenhada antes disso, por _desenhar_janela --
+    esta função só cuida do que fica DENTRO da janela."""
     fonte_linha, fonte_texto, fonte_input, fonte_feedback = fontes
     rect = janela["rect"]
     tipo = janela["tipo"]

@@ -4,11 +4,14 @@ Base da fase feita com Pygame, reaproveitando a estrutura da Fase 1:
 personagem anda pelo laboratório dos anos 1940, conversa com John von
 Neumann e resolve o puzzle do EDVAC para abrir a porta.
 
-NESTA ETAPA: só a base (cenário, personagem, cápsula, chatbot, menu,
-porta). O puzzle real (reorganizar a memória e energizar o EDVAC) e a
-animação do cabo/conector ainda NÃO estão implementados — por enquanto,
-clicar no EDVAC só mostra "Puzzle em construção", e existe uma tecla
-temporária (T) para simular a fase concluída e testar a porta.
+Clicar no EDVAC abre o puzzle principal: o jogador arrasta 6 cards de
+instrução (estilo assembly) para os endereços corretos da memória,
+representando o conceito de "programa armazenado" de von Neumann. Ao
+energizar a máquina com o programa certo, a porta é liberada.
+
+AINDA NÃO IMPLEMENTADO NESTA ETAPA: a animação do cabo/conector ao
+energizar o EDVAC (por enquanto, resolver o puzzle já troca direto para
+o cenário ligado).
 """
 # ==============================================================================
 # === CONFIGURAÇÃO INICIAL (imports, janela, caminhos de assets) ===
@@ -313,23 +316,144 @@ COR_BOTAO_MENU = (120, 80, 45)
 COR_BORDA_BOTAO_MENU = (60, 35, 15)
 
 # ==============================================================================
-# === ÁREA DO EDVAC (estado da fase — o puzzle real vem na próxima etapa) ===
+# === ÁREA DO EDVAC E PUZZLE (programa armazenado) ===
 # ==============================================================================
 
 # ---------------------------------------------------------------------------
-# Nesta etapa ainda não existe o puzzle de reorganizar a memória. fase_concluida
-# guarda se o EDVAC já foi energizado (equivalente ao "cenário consertado"
-# da Fase 1); por enquanto ela só muda com a TECLA TEMPORÁRIA definida mais
-# abaixo (T), usada só para testar a troca de cenário e a porta enquanto o
-# puzzle de verdade não é implementado.
+# fase_concluida guarda se o EDVAC já foi energizado (equivalente ao
+# "cenário consertado" da Fase 1). Só passa a True quando o jogador monta o
+# programa na ordem certa e clica em "Ligar EDVAC" dentro do puzzle.
 # ---------------------------------------------------------------------------
 fase_concluida = False
 
 # ---------------------------------------------------------------------------
-# Controla as mensagens temporárias na tela (ex: "Puzzle em construção").
+# Instruções do programa, na ORDEM CORRETA. O índice de cada instrução na
+# lista já É o endereço de memória correto para ela (0 a 5) — assim, um
+# card com id N está no lugar certo quando está dentro do slot N.
 # ---------------------------------------------------------------------------
-mensagem_atual = ""
-tempo_mensagem = 0  # quantos quadros a mensagem ainda deve ficar visível
+INSTRUCOES_EDVAC = [
+    "LOAD A    (carregar valor A)",
+    "LOAD B    (carregar valor B)",
+    "ADD A, B  (somar A e B)",
+    "STORE C   (guardar resultado em C)",
+    "PRINT C   (mostrar resultado)",
+    "HALT      (parar a maquina)",
+]
+NUM_ENDERECOS_EDVAC = len(INSTRUCOES_EDVAC)
+
+# ---------------------------------------------------------------------------
+# Layout do puzzle: um painel central com uma coluna de slots de memória
+# (endereços 0 a 5) à esquerda e os cards embaralhados numa coluna de
+# origem à direita.
+# ---------------------------------------------------------------------------
+PUZZLE_EDVAC_PAINEL = pygame.Rect(0, 0, 860, 500)
+PUZZLE_EDVAC_PAINEL.center = (LARGURA_JANELA // 2, ALTURA_JANELA // 2)
+
+SLOT_EDVAC_LARGURA, SLOT_EDVAC_ALTURA = 240, 44
+SLOT_EDVAC_GAP = 10
+SLOT_EDVAC_ROTULO_LARGURA = 34
+
+SLOTS_EDVAC_X = PUZZLE_EDVAC_PAINEL.left + 50 + SLOT_EDVAC_ROTULO_LARGURA
+SLOTS_EDVAC_Y = PUZZLE_EDVAC_PAINEL.top + 110
+
+
+def rect_slot_edvac(indice):
+    return pygame.Rect(
+        SLOTS_EDVAC_X,
+        SLOTS_EDVAC_Y + indice * (SLOT_EDVAC_ALTURA + SLOT_EDVAC_GAP),
+        SLOT_EDVAC_LARGURA, SLOT_EDVAC_ALTURA,
+    )
+
+
+RETANGULOS_SLOTS_EDVAC = [rect_slot_edvac(i) for i in range(NUM_ENDERECOS_EDVAC)]
+
+CARD_EDVAC_LARGURA, CARD_EDVAC_ALTURA = 226, 36
+ORIGEM_EDVAC_X = SLOTS_EDVAC_X + SLOT_EDVAC_LARGURA + 70
+
+
+def rect_origem_edvac(indice):
+    """Posição (alinhada com a linha do slot de mesmo índice) de uma das 6
+    posições fixas da área de origem, à direita dos slots."""
+    slot = RETANGULOS_SLOTS_EDVAC[indice]
+    rect = pygame.Rect(0, 0, CARD_EDVAC_LARGURA, CARD_EDVAC_ALTURA)
+    rect.center = (ORIGEM_EDVAC_X + CARD_EDVAC_LARGURA // 2, slot.centery)
+    return rect
+
+
+# Cada card (id 0 a 5, igual ao seu endereço correto) começa numa posição
+# FIXA e embaralhada na área de origem — a posição não muda enquanto o
+# puzzle estiver aberto, então soltar um card fora de um slot sempre o
+# devolve para o mesmo lugar.
+_ordem_embaralhada_edvac = list(range(NUM_ENDERECOS_EDVAC))
+random.shuffle(_ordem_embaralhada_edvac)
+POSICOES_ORIGEM_EDVAC = {
+    card_id: rect_origem_edvac(posicao).topleft
+    for posicao, card_id in enumerate(_ordem_embaralhada_edvac)
+}
+
+BOTAO_LIGAR_EDVAC = pygame.Rect(0, 0, 260, 48)
+BOTAO_LIGAR_EDVAC.center = (
+    PUZZLE_EDVAC_PAINEL.centerx,
+    SLOTS_EDVAC_Y + NUM_ENDERECOS_EDVAC * (SLOT_EDVAC_ALTURA + SLOT_EDVAC_GAP) - SLOT_EDVAC_GAP + 45,
+)
+
+COR_PAINEL_EDVAC_FUNDO = (24, 22, 32)
+COR_PAINEL_EDVAC_BORDA = (255, 220, 80)
+COR_SLOT_EDVAC_VAZIO = (45, 45, 60)
+COR_SLOT_EDVAC_BORDA = (110, 110, 130)
+COR_ROTULO_ENDERECO_EDVAC = (200, 200, 215)
+COR_CARD_EDVAC_FUNDO = (238, 232, 212)
+COR_CARD_EDVAC_BORDA = (70, 55, 25)
+COR_CARD_EDVAC_BORDA_ARRASTANDO = (255, 220, 80)
+COR_TEXTO_CARD_EDVAC = (25, 25, 25)
+COR_BOTAO_LIGAR_EDVAC_ATIVO = (70, 150, 75)
+COR_BOTAO_LIGAR_EDVAC_INATIVO = (70, 70, 80)
+COR_BORDA_BOTAO_LIGAR_EDVAC = (30, 60, 30)
+COR_MENSAGEM_SUCESSO_EDVAC = (130, 235, 130)
+COR_MENSAGEM_ERRO_EDVAC = (235, 110, 100)
+
+# ---------------------------------------------------------------------------
+# Estado do puzzle: cada slot guarda o id do card encaixado nele (ou None);
+# card_no_slot_edvac é o inverso (card -> slot), útil pra achar rápido onde
+# um card está. Um card sem slot (None) está na área de origem.
+# ---------------------------------------------------------------------------
+puzzle_edvac_aberto = False
+puzzle_edvac_resolvido = False
+slots_edvac = [None] * NUM_ENDERECOS_EDVAC
+card_no_slot_edvac = {card_id: None for card_id in range(NUM_ENDERECOS_EDVAC)}
+card_arrastando_edvac = None       # id do card sendo arrastado no momento, ou None
+arrasto_offset_edvac = (0, 0)      # distância do canto do card até o cursor, pra ele não "pular" ao pegar
+mensagem_validacao_edvac = ""
+cor_mensagem_validacao_edvac = (255, 255, 255)
+
+
+def rect_atual_card_edvac(card_id, mouse_pos=None):
+    """Devolve o retângulo onde o card deve ser desenhado agora: seguindo o
+    mouse se estiver sendo arrastado, centralizado no slot se já estiver
+    encaixado, ou na posição fixa de origem caso contrário."""
+    rect = pygame.Rect(0, 0, CARD_EDVAC_LARGURA, CARD_EDVAC_ALTURA)
+    if card_arrastando_edvac == card_id and mouse_pos is not None:
+        rect.topleft = (mouse_pos[0] - arrasto_offset_edvac[0], mouse_pos[1] - arrasto_offset_edvac[1])
+        return rect
+    slot_index = card_no_slot_edvac[card_id]
+    if slot_index is not None:
+        rect.center = RETANGULOS_SLOTS_EDVAC[slot_index].center
+        return rect
+    rect.topleft = POSICOES_ORIGEM_EDVAC[card_id]
+    return rect
+
+
+def desenhar_card_edvac(superficie, rect, texto, arrastando=False):
+    pygame.draw.rect(superficie, COR_CARD_EDVAC_FUNDO, rect, border_radius=6)
+    cor_borda = COR_CARD_EDVAC_BORDA_ARRASTANDO if arrastando else COR_CARD_EDVAC_BORDA
+    pygame.draw.rect(superficie, cor_borda, rect, width=3 if arrastando else 2, border_radius=6)
+
+    linhas = quebrar_texto(texto, fonte_dialogo_von_neumann, rect.width - 16)
+    y = rect.centery - (len(linhas) * ESPACAMENTO_LINHA_DIALOGO_VN) // 2
+    for linha in linhas:
+        superficie_linha = fonte_dialogo_von_neumann.render(linha, True, COR_TEXTO_CARD_EDVAC)
+        superficie.blit(superficie_linha, (rect.centerx - superficie_linha.get_width() // 2, y))
+        y += ESPACAMENTO_LINHA_DIALOGO_VN
 
 # ==============================================================================
 # === ESTADO DO MENU (aberto/fechado, pausa manual, volume da música) ===
@@ -589,7 +713,7 @@ while rodando:
         # --- EVENTOS: MENU DE CONFIGURAÇÕES (engrenagem e botões) ---
         # ---------------------------------------------------------------
         if evento.type == pygame.MOUSEBUTTONDOWN:
-            if not menu_aberto and AREA_ENGRENAGEM.collidepoint(evento.pos):
+            if not menu_aberto and not puzzle_edvac_aberto and AREA_ENGRENAGEM.collidepoint(evento.pos):
                 som_clique.play()
                 menu_aberto = True
 
@@ -608,17 +732,49 @@ while rodando:
                 elif BOTAO_SAIR.collidepoint(evento.pos):
                     rodando = False
 
+            elif puzzle_edvac_aberto:
+                # -----------------------------------------------------------
+                # --- EVENTOS: PUZZLE DO EDVAC (pegar um card ou ligar) ---
+                # -----------------------------------------------------------
+                if BOTAO_LIGAR_EDVAC.collidepoint(evento.pos) and all(s is not None for s in slots_edvac):
+                    som_clique.play()
+                    primeiro_errado = next(
+                        (i for i in range(NUM_ENDERECOS_EDVAC) if slots_edvac[i] != i), None
+                    )
+                    if primeiro_errado is None:
+                        mensagem_validacao_edvac = "Programa executado com sucesso!"
+                        cor_mensagem_validacao_edvac = COR_MENSAGEM_SUCESSO_EDVAC
+                        puzzle_edvac_resolvido = True
+                        fase_concluida = True
+                        fundo_atual = fundo_ligado
+                    else:
+                        mensagem_validacao_edvac = f"ERRO: execução travou no endereço {primeiro_errado}"
+                        cor_mensagem_validacao_edvac = COR_MENSAGEM_ERRO_EDVAC
+                else:
+                    # Pega o card clicado (se houver), de cima pra baixo na
+                    # ordem dos endereços e depois na área de origem.
+                    for card_id in range(NUM_ENDERECOS_EDVAC):
+                        rect_card = rect_atual_card_edvac(card_id)
+                        if rect_card.collidepoint(evento.pos):
+                            som_clique.play()
+                            card_arrastando_edvac = card_id
+                            arrasto_offset_edvac = (evento.pos[0] - rect_card.x, evento.pos[1] - rect_card.y)
+                            slot_de_origem = card_no_slot_edvac[card_id]
+                            if slot_de_origem is not None:
+                                slots_edvac[slot_de_origem] = None
+                                card_no_slot_edvac[card_id] = None
+                            break
+
             else:
                 # -----------------------------------------------------------
                 # --- EVENTOS: EDVAC (clique na máquina) ---
-                # O puzzle real ainda não existe nesta etapa: só mostra uma
-                # mensagem temporária avisando que está em construção.
+                # Abre o puzzle de organizar o programa na memória.
                 # -----------------------------------------------------------
                 if not fase_concluida and not caixa_von_neumann_aberta:
                     if AREA_EDVAC.collidepoint(evento.pos):
                         som_clique.play()
-                        mensagem_atual = "Puzzle em construção"
-                        tempo_mensagem = 90
+                        puzzle_edvac_aberto = True
+                        mensagem_validacao_edvac = ""
 
                 # -----------------------------------------------------------------
                 # --- EVENTOS: CHATBOT VON NEUMANN (clique no ícone) ---
@@ -636,11 +792,36 @@ while rodando:
                         resposta_von_neumann = ""
                         von_neumann_pensando = False
 
+        # ---------------------------------------------------------------
+        # --- EVENTOS: PUZZLE DO EDVAC (soltar o card arrastado) ---
+        # Solta dentro de um slot vazio encaixa o card ali; solto em
+        # qualquer outro lugar, o card volta pra área de origem (não faz
+        # nada além de limpar o estado de arrasto, já que rect_atual_card_edvac
+        # cai automaticamente na posição de origem quando o card não está
+        # em nenhum slot).
+        # ---------------------------------------------------------------
+        if evento.type == pygame.MOUSEBUTTONUP and card_arrastando_edvac is not None:
+            slot_alvo = next(
+                (i for i in range(NUM_ENDERECOS_EDVAC)
+                 if slots_edvac[i] is None and RETANGULOS_SLOTS_EDVAC[i].collidepoint(evento.pos)),
+                None,
+            )
+            if slot_alvo is not None:
+                slots_edvac[slot_alvo] = card_arrastando_edvac
+                card_no_slot_edvac[card_arrastando_edvac] = slot_alvo
+            card_arrastando_edvac = None
+
         # Enquanto o menu de configurações está aberto, Esc fecha ele.
         if evento.type == pygame.KEYDOWN and menu_aberto:
             if evento.key == pygame.K_ESCAPE:
                 menu_aberto = False
                 pausado_manual = False
+
+        # Enquanto o puzzle do EDVAC está aberto, Esc fecha ele sem perder o
+        # que o jogador já organizou nos slots (fecha só a janela do puzzle).
+        if evento.type == pygame.KEYDOWN and puzzle_edvac_aberto:
+            if evento.key == pygame.K_ESCAPE:
+                puzzle_edvac_aberto = False
 
         # ---------------------------------------------------------------
         # --- EVENTOS: CHATBOT VON NEUMANN (digitação na caixinha) ---
@@ -674,23 +855,11 @@ while rodando:
                 ):
                     texto_digitado_von_neumann += evento.unicode
 
-        # ---------------------------------------------------------------
-        # --- EVENTOS: TECLA TEMPORÁRIA (T) para testar a fase concluída ---
-        # PROVISÓRIO: enquanto o puzzle real (reorganizar a memória e
-        # energizar o EDVAC) não existe, a tecla T alterna entre desligado
-        # e ligado, só para conseguir testar a porta e o cenário final.
-        # Remover quando o puzzle de verdade for implementado.
-        # ---------------------------------------------------------------
-        if evento.type == pygame.KEYDOWN and not menu_aberto and not caixa_von_neumann_aberta:
-            if evento.key == pygame.K_t:
-                fase_concluida = not fase_concluida
-                fundo_atual = fundo_ligado if fase_concluida else fundo_desligado
-
     # -----------------------------------------------------------------------
     # --- ATUALIZAÇÃO: MOVIMENTO DO PERSONAGEM ---
     # Bloqueado enquanto a caixinha de von Neumann ou o menu estão abertos.
     # -----------------------------------------------------------------------
-    if not caixa_von_neumann_aberta and not menu_aberto:
+    if not caixa_von_neumann_aberta and not menu_aberto and not puzzle_edvac_aberto:
         teclas = pygame.key.get_pressed()
         if teclas[pygame.K_LEFT]:
             personagem_centro_x -= VELOCIDADE_PERSONAGEM
@@ -756,14 +925,10 @@ while rodando:
     if (
         not fase_concluida
         and not caixa_von_neumann_aberta
+        and not puzzle_edvac_aberto
         and AREA_EDVAC.collidepoint(mouse_pos)
     ):
         desenhar_brilho_edvac(tela, AREA_EDVAC, pygame.time.get_ticks())
-
-    if tempo_mensagem > 0:
-        texto = fonte_grande.render(mensagem_atual, True, (255, 255, 0))
-        tela.blit(texto, (LARGURA_JANELA // 2 - texto.get_width() // 2, 30))
-        tempo_mensagem -= 1
 
     # Mensagem de vitória, com visual de jogo retrô: fonte pixelada grande,
     # texto branco com contorno preto, fundo escuro semitransparente atrás
@@ -850,6 +1015,77 @@ while rodando:
             tela, "Enter para perguntar, Esc para fechar", fonte_dialogo_von_neumann, (0, 0, 0),
             texto_x, papel_y + 143, LARGURA_TEXTO_CAIXA_VN, espacamento=ESPACAMENTO_LINHA_DIALOGO_VN,
         )
+
+    # =========================================================================
+    # === DESENHO: PUZZLE DO EDVAC (memória, cards e botão de ligar) ===
+    # Enquanto está aberto, o resto do jogo fica pausado atrás de um fundo
+    # escurecido, igual ao menu de configurações.
+    # =========================================================================
+    if puzzle_edvac_aberto:
+        fundo_escurecido_edvac = pygame.Surface((LARGURA_JANELA, ALTURA_JANELA), pygame.SRCALPHA)
+        fundo_escurecido_edvac.fill((0, 0, 0, 170))
+        tela.blit(fundo_escurecido_edvac, (0, 0))
+
+        pygame.draw.rect(tela, COR_PAINEL_EDVAC_FUNDO, PUZZLE_EDVAC_PAINEL, border_radius=10)
+        pygame.draw.rect(tela, COR_PAINEL_EDVAC_BORDA, PUZZLE_EDVAC_PAINEL, width=3, border_radius=10)
+
+        desenhar_texto_com_contorno(
+            tela, "EDVAC - Programa Armazenado", fonte_grande, COR_PAINEL_EDVAC_BORDA, (0, 0, 0),
+            PUZZLE_EDVAC_PAINEL.centerx, PUZZLE_EDVAC_PAINEL.top + 28,
+        )
+        texto_instrucao_edvac = fonte.render(
+            "Arraste os cards para os enderecos, na ordem certa", True, (210, 210, 220),
+        )
+        tela.blit(texto_instrucao_edvac, (
+            PUZZLE_EDVAC_PAINEL.centerx - texto_instrucao_edvac.get_width() // 2, PUZZLE_EDVAC_PAINEL.top + 55,
+        ))
+
+        rotulo_memoria = fonte.render("MEMORIA", True, COR_ROTULO_ENDERECO_EDVAC)
+        tela.blit(rotulo_memoria, (SLOTS_EDVAC_X, SLOTS_EDVAC_Y - 22))
+        rotulo_instrucoes = fonte.render("INSTRUCOES", True, COR_ROTULO_ENDERECO_EDVAC)
+        tela.blit(rotulo_instrucoes, (ORIGEM_EDVAC_X, SLOTS_EDVAC_Y - 22))
+
+        # Slots de memória vazios (o card, se já estiver encaixado, é
+        # desenhado depois, por cima, junto com os outros cards).
+        for indice, slot_rect in enumerate(RETANGULOS_SLOTS_EDVAC):
+            pygame.draw.rect(tela, COR_SLOT_EDVAC_VAZIO, slot_rect, border_radius=6)
+            pygame.draw.rect(tela, COR_SLOT_EDVAC_BORDA, slot_rect, width=2, border_radius=6)
+            rotulo_endereco = fonte.render(str(indice), True, COR_ROTULO_ENDERECO_EDVAC)
+            tela.blit(rotulo_endereco, (
+                slot_rect.left - SLOT_EDVAC_ROTULO_LARGURA + 8,
+                slot_rect.centery - rotulo_endereco.get_height() // 2,
+            ))
+
+        # Cards de instrução: o que está sendo arrastado é desenhado por
+        # último, pra ficar sempre por cima dos outros.
+        for card_id in range(NUM_ENDERECOS_EDVAC):
+            if card_id == card_arrastando_edvac:
+                continue
+            rect_card = rect_atual_card_edvac(card_id)
+            desenhar_card_edvac(tela, rect_card, INSTRUCOES_EDVAC[card_id])
+        if card_arrastando_edvac is not None:
+            rect_card = rect_atual_card_edvac(card_arrastando_edvac, mouse_pos)
+            desenhar_card_edvac(tela, rect_card, INSTRUCOES_EDVAC[card_arrastando_edvac], arrastando=True)
+
+        # Botão "Ligar EDVAC": só fica com a cor "ativa" quando os 6 slots
+        # estão preenchidos.
+        pronto_para_ligar = all(s is not None for s in slots_edvac)
+        cor_botao_ligar = COR_BOTAO_LIGAR_EDVAC_ATIVO if pronto_para_ligar else COR_BOTAO_LIGAR_EDVAC_INATIVO
+        pygame.draw.rect(tela, cor_botao_ligar, BOTAO_LIGAR_EDVAC, border_radius=8)
+        pygame.draw.rect(tela, COR_BORDA_BOTAO_LIGAR_EDVAC, BOTAO_LIGAR_EDVAC, width=2, border_radius=8)
+        texto_botao_ligar = fonte.render("LIGAR EDVAC", True, (255, 255, 255))
+        tela.blit(texto_botao_ligar, texto_botao_ligar.get_rect(center=BOTAO_LIGAR_EDVAC.center))
+
+        if mensagem_validacao_edvac:
+            texto_msg_edvac = fonte.render(mensagem_validacao_edvac, True, cor_mensagem_validacao_edvac)
+            tela.blit(texto_msg_edvac, (
+                PUZZLE_EDVAC_PAINEL.centerx - texto_msg_edvac.get_width() // 2, BOTAO_LIGAR_EDVAC.bottom + 14,
+            ))
+
+        texto_fechar_edvac = fonte.render("Esc para fechar", True, (170, 170, 180))
+        tela.blit(texto_fechar_edvac, (
+            PUZZLE_EDVAC_PAINEL.right - texto_fechar_edvac.get_width() - 16, PUZZLE_EDVAC_PAINEL.top + 14,
+        ))
 
     # =========================================================================
     # === DESENHO: MENU DE CONFIGURAÇÕES ===

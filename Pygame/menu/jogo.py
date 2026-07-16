@@ -144,6 +144,11 @@ PHASES_ORIG_SIZE = _phases_raw.get_size()  # (1536, 1024)
 PHASES_BG = pygame.transform.smoothscale(_phases_raw, (WIDTH, HEIGHT))
 
 
+# Todas as coordenadas de PHASE_RECTS/PHASES_BACK_RECT/etc. abaixo foram
+# medidas olhando direto pra imagem original do mapa (1536x1024) -- as 3
+# funções _scale_rect/_scale_point/_scale_len convertem essas medidas fixas
+# pra escala real da janela (WIDTH x HEIGHT), cada uma pro tipo de dado que
+# precisa converter (retângulo, ponto único, ou só um comprimento num eixo).
 def _scale_rect(x, y, w, h):
     sx = WIDTH / PHASES_ORIG_SIZE[0]
     sy = HEIGHT / PHASES_ORIG_SIZE[1]
@@ -170,12 +175,17 @@ for _i in range(10):
 
 
 def _scale_point(x, y):
+    # Mesma conversão de _scale_rect, mas pra um ponto único (ex: o centro
+    # de uma estrela) em vez de um retângulo inteiro.
     sx = WIDTH / PHASES_ORIG_SIZE[0]
     sy = HEIGHT / PHASES_ORIG_SIZE[1]
     return (x * sx, y * sy)
 
 
 def _scale_len(v, eixo="x"):
+    # Mesma conversão, mas só pra um comprimento (ex: o raio de uma
+    # estrela) -- precisa saber em qual eixo (x ou y) esse comprimento foi
+    # medido, já que a escala horizontal e vertical podem ser diferentes.
     if eixo == "x":
         return v * WIDTH / PHASES_ORIG_SIZE[0]
     return v * HEIGHT / PHASES_ORIG_SIZE[1]
@@ -355,6 +365,13 @@ CONTROL_ROWS = [
 
 
 class Button:
+    """Botão retangular reutilizável: desenha um retângulo com texto
+    centralizado, muda de cor no hover (mouse em cima) ou quando
+    `selected` (navegação pelo teclado), e sabe dizer se foi clicado.
+    Usado em todos os menus (principal, opções, fases) -- `action` é só
+    uma string livre (ex: "goto_options"), interpretada por
+    Game.do_action quando o botão é clicado."""
+
     def __init__(self, rect, text, action, font=None):
         self.rect = pygame.Rect(rect)
         self.text = text
@@ -375,9 +392,13 @@ class Button:
         surface.blit(txt_surf, txt_surf.get_rect(center=self.rect.center))
 
     def update_hover(self, pos):
+        # Chamado todo frame com a posição atual do mouse, pra saber se
+        # deve desenhar o botão "aceso" ou não.
         self.hovered = self.rect.collidepoint(pos)
 
     def clicked(self, pos, event):
+        # True se este evento é um clique do botão esquerdo dentro da
+        # área do botão.
         return (
             event.type == pygame.MOUSEBUTTONDOWN
             and event.button == 1
@@ -395,6 +416,14 @@ class GlowButton(Button):
 
 
 class Game:
+    """Controla o laço principal (game loop) e a máquina de estados do
+    menu inteiro: tela principal, opções (volume/controles/personagens)
+    e o mapa de fases. `self.state` diz qual tela está ativa agora;
+    `build_buttons()` reconstrói `self.buttons` toda vez que o estado
+    muda, e `do_action()` interpreta o `action` do botão clicado (ver
+    Button) pra decidir o que fazer -- inclusive lançar uma fase, que é
+    o ponto onde este arquivo se conecta com o resto do jogo."""
+
     def __init__(self):
         self.running = True
         self.state = "main"
@@ -442,6 +471,9 @@ class Game:
         return TEXTS[key]
 
     def get_personagem_name(self, index):
+        # Nome mostrado/repassado às fases pro personagem `index`: o nome
+        # que o jogador digitou pra renomear (personagem_overrides), ou o
+        # nome padrão traduzido (TEXTS) se ele nunca renomeou.
         override = self.personagem_overrides[index]
         if override:
             return override
@@ -571,21 +603,20 @@ class Game:
                     _iniciar_musica_menu()
                     self.build_buttons()
                 elif index in (3, 4):
-                    # Fase_4/fase4_atual.py e Fase_5/fase_5.py: mesmo
-                    # padrão de import tardio da Fase 9 (ver
+                    # Fase_4/fase4_final.py e Fase_5/fase_5_atualizada.py:
+                    # mesmo padrão de import tardio da Fase 9 (ver
                     # _importar_ponto_de_entrada) -- as duas pastas têm
-                    # cada uma seu próprio npc_chatbot.py/inventario.py,
-                    # com o MESMO nome de módulo (mas conteúdo diferente)
-                    # que os da Fase 9, daí o cuidado de só importar na
-                    # hora do clique e limpar o cache antes.
+                    # cada uma seu próprio npc_chatbot.py/inventario.py/
+                    # audio_fase5.py/config_fase5.py (mesmo nome de
+                    # módulo, conteúdo diferente entre as duas pastas),
+                    # daí o cuidado de só importar na hora do clique e
+                    # limpar o cache antes.
                     #
                     # As duas já aceitam character_image/character_name/
                     # genero (mesmo formato que Fase 2/9) e escolhem o
                     # sprite certo sozinhas a partir do `genero` -- assim
                     # o personagem escolhido aqui no menu continua o
                     # mesmo em qualquer fase, não só nessas duas.
-                    # Nenhuma das duas toca música/efeito nenhum (sem
-                    # módulo de áudio próprio, nada pra parar aqui).
                     #
                     # Jogo.executar() delas só devolve algo (a string
                     # "vitoria") quando o jogador vence e clica no botão
@@ -593,17 +624,23 @@ class Game:
                     # QUIT) em qualquer outro momento, o laço delas mesmo
                     # chama pygame.quit()/sys.exit() e encerra o programa
                     # INTEIRO, não só a fase -- isso já é assim no código
-                    # delas (Pygame/Fase_4/fase4_atual.py e
-                    # Pygame/Fase_5/fase_5.py), fora do que dá pra
-                    # controlar daqui do menu.
+                    # delas (Pygame/Fase_4/fase4_final.py e
+                    # Pygame/Fase_5/fase_5_atualizada.py), fora do que dá
+                    # pra controlar daqui do menu.
                     if index == 3:
                         modulo = _importar_ponto_de_entrada(
-                            _FASE4_DIR, "fase4_atual", "npc_chatbot", "inventario"
+                            _FASE4_DIR, "fase4_final", "npc_chatbot", "inventario",
+                            "audio_fase5", "config_fase5",
                         )
                         chave_progresso = "fase_4"
                     else:
+                        # Nome do módulo principal atualizado depois que a
+                        # colega renomeou o arquivo de fase_5.py para
+                        # fase_5_atualizada.py -- só o nome do módulo
+                        # mudou aqui, o arquivo dela não foi tocado.
                         modulo = _importar_ponto_de_entrada(
-                            _FASE5_DIR, "fase_5", "npc_chatbot", "inventario"
+                            _FASE5_DIR, "fase_5_atualizada", "npc_chatbot", "inventario",
+                            "audio_fase5", "config_fase5",
                         )
                         chave_progresso = "fase_5"
 
@@ -612,6 +649,15 @@ class Game:
                         character_name=self.get_personagem_name(self.personagem_index),
                         genero="m" if self.personagem_index == 0 else "f",
                     ).executar()
+                    # Fase_4 e Fase_5 passaram a ter música própria
+                    # (audio_fase5.py, trazido pela atualização da colega)
+                    # -- sem isso, ela continuaria tocando por baixo do
+                    # menu ao voltar pro mapa (mesmo motivo de
+                    # _importar_ponto_de_entrada(..., "audio_fase9").
+                    # parar_tudo() logo acima, pra Fase 9).
+                    _importar_ponto_de_entrada(
+                        _FASE4_DIR if index == 3 else _FASE5_DIR, "audio_fase5"
+                    ).parar_tudo()
                     if resultado == "vitoria":
                         _marcar_fase_completa(chave_progresso)
                     pygame.display.set_caption("Escape.from_past()")
@@ -666,6 +712,11 @@ class Game:
             self.build_buttons()
 
     def set_volume_from_mouse(self, x):
+        # Converte a posição X (em coordenada virtual) do mouse dentro do
+        # slider pra um volume 0-100: rel é "quanto por cento da largura
+        # do slider" o X representa, travado entre 0.0 e 1.0 (clicar/
+        # arrastar antes do início ou depois do fim do slider trava em
+        # 0% ou 100%, em vez de dar um valor negativo ou acima de 100).
         rel = (x - self.slider_rect.x) / self.slider_rect.width
         self.volume = int(max(0.0, min(1.0, rel)) * 100)
 
@@ -727,6 +778,14 @@ class Game:
         sys.exit()
 
     def handle_key(self, key):
+        """Navegação por teclado (chamada a cada KEYDOWN, ver run()):
+        setas/WASD movem a seleção entre os botões da tela atual, ENTER
+        ativa o botão selecionado (mesmo `action` de um clique), ESC volta
+        pra tela anterior (ou fecha o jogo, se já estiver na tela
+        principal) e esquerda/direita ajustam o volume ou trocam de
+        personagem nas telas onde isso faz sentido. Se o jogador estiver
+        renomeando um personagem (self.editing_name), o teclado inteiro
+        pertence à edição do nome em vez de navegação normal."""
         if self.editing_name:
             if key == pygame.K_RETURN:
                 self.do_action("confirm_rename")
@@ -838,6 +897,12 @@ class Game:
 
     @staticmethod
     def _keycap_surface(label, w, h, font):
+        """Desenha um retângulo estilo "tecla de teclado" (fundo escuro +
+        borda verde arredondada) com `label` centralizado dentro -- usado
+        pela tela de controles (draw_controles_screen) tanto pro grupo
+        WASD quanto pras teclas de ação (SETAS/CLIQUE/ESC). `label` pode
+        ter várias linhas (separadas por "\\n", ex: "CLIQUE\\nDO MOUSE"),
+        todas centralizadas verticalmente dentro da tecla."""
         surf = pygame.Surface((w, h), pygame.SRCALPHA)
         rect = surf.get_rect()
         pygame.draw.rect(surf, DARK_PANEL, rect, border_radius=8)
