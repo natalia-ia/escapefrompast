@@ -195,8 +195,8 @@ imagem_capsula_original = imagem_capsula_bruta.subsurface(
     imagem_capsula_bruta.get_bounding_rect(min_alpha=10)
 ).copy()
 
-MARGEM_CAPSULA_ABACO = 5  # folga entre a cápsula e o início do ábaco, pra não encostar "grudado"
-ALTURA_CAPSULA_ALVO = 330  # ~18% maior que os 280px anteriores
+MARGEM_CAPSULA_ABACO = -780  # folga entre a cápsula e o início do ábaco, pra não encostar "grudado"
+ALTURA_CAPSULA_ALVO = 360  # ~18% maior que os 280px anteriores
 _fator_escala_capsula = ALTURA_CAPSULA_ALVO / imagem_capsula_original.get_height()
 
 imagem_capsula = pygame.transform.scale(
@@ -205,7 +205,7 @@ imagem_capsula = pygame.transform.scale(
 )
 
 CAPSULA_POS_X = AREA_ABACO.left - MARGEM_CAPSULA_ABACO - imagem_capsula.get_width()
-CAPSULA_POS_Y = ALTURA_JANELA - 20 - imagem_capsula.get_height()  # apoiada no chão
+CAPSULA_POS_Y = ALTURA_JANELA - 80 - imagem_capsula.get_height()  # apoiada no chão
 
 # ==============================================================================
 # === CHATBOT (GERBERT) — VISUAL: ícone, avatar e caixinha de diálogo ===

@@ -55,7 +55,7 @@ LARGURA, ALTURA = 960, 600
 FPS = 60
 
 # Tempo total da fase, em segundos (5 minutos)
-TEMPO_LIMITE_SEGUNDOS = 1 * 60
+TEMPO_LIMITE_SEGUNDOS = 8 * 60
 
 
 # Cores utilitárias (RGB) usadas em textos e placeholders
