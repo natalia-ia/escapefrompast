@@ -8,5 +8,8 @@
     "estrelas": 3,
     "completo": true,
     "tempo": "00:25"
+  },
+  "fase_1": {
+    "completo": true
   }
 }

@@ -22,6 +22,23 @@ _PYGAME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _FASE4_DIR = os.path.join(_PYGAME_DIR, "Fase_4")
 _FASE5_DIR = os.path.join(_PYGAME_DIR, "Fase_5")
 _FASE9_DIR = os.path.join(_PYGAME_DIR, "Fase_9")
+# Fase_1/fase_1.py morava aninhado (Pygame/Fase_1/Pygame/fase_1/fase_1.py),
+# mas a colega reestruturou a pasta (removeu a duplicação) e agora o
+# arquivo mora direto em Pygame/fase_1/fase_1.py -- caminho atualizado
+# abaixo. Fase_10/fase_10.py mora dentro de assets/ (entrega da colega,
+# estrutura própria). As duas continuam seguindo o mesmo padrão de import
+# tardio das outras fases soltas (ver _importar_ponto_de_entrada), só
+# apontando pra o subdiretório certo.
+_FASE1_DIR = os.path.join(_PYGAME_DIR, "fase_1")
+_FASE3_DIR = os.path.join(_PYGAME_DIR, "Fase_3")
+_FASE6_DIR = os.path.join(_PYGAME_DIR, "Fase_6")
+_FASE7_DIR = os.path.join(_PYGAME_DIR, "Fase_7")
+_FASE8_DIR = os.path.join(_PYGAME_DIR, "Fase_8")
+_FASE10_DIR = os.path.join(_PYGAME_DIR, "Fase_10", "assets")
+# cena_final/ não é uma fase clicável no mapa -- é a cutscene de
+# encerramento, chamada automaticamente logo depois que o jogador vence a
+# Fase 10 (ver o bloco de index == 9 em do_action).
+_CENA_FINAL_DIR = os.path.join(_PYGAME_DIR, "cena_final")
 
 PROGRESSO_PATH = os.path.join(_PYGAME_DIR, "progresso.json")
 
@@ -443,10 +460,11 @@ class Game:
         self.blink_timer = 0
         self.blink_visible = True
 
-        # Quantidade de fases já desbloqueadas (a Fase 1 sempre começa aberta).
-        # TODO: quando a Fase 1 tiver conteúdo e progressão real, isso deve
-        # voltar a ser 1 e o avanço deve ser incrementado ao concluir cada fase.
-        self.unlocked_phases = 2
+        # Quantidade de fases já desbloqueadas (a Fase 1, index 0, sempre
+        # começa aberta) -- todo o resto do avanço agora é real, calculado
+        # a partir do progresso.json de cada fase (ver _DEPENDENCIA_
+        # DESBLOQUEIO/_fase_desbloqueada), não mais um contador provisório.
+        self.unlocked_phases = 1
 
         # Para onde o VOLTAR das Opções deve retornar (main ou phases).
         self.options_return_to = "main"
@@ -537,12 +555,23 @@ class Game:
                 if self._fase_desbloqueada(i):
                     self.buttons.append(GlowButton(PHASE_RECTS[i], "", f"start_phase_{i}"))
 
-    # Mapeia o índice (0-based) de cada fase fora da ordem normal pra
-    # chave, em progresso.json, da fase da qual ela depende -- usado por
-    # _fase_desbloqueada(). Fase 4 (index 3) e Fase 9 (index 8) libera
-    # com a Fase 2 completa, já que as fases 3 e 6-8 ainda não existem;
-    # Fase 5 (index 4) já segue a ordem normal, depende só da Fase 4.
-    _DEPENDENCIA_DESBLOQUEIO = {3: "fase_2", 4: "fase_4", 8: "fase_2"}
+    # Mapeia o índice (0-based) de cada fase pra chave, em progresso.json,
+    # da fase da qual ela depende -- usado por _fase_desbloqueada(). Cadeia
+    # sequencial completa, sem nenhum pulo: Fase 1 (index 0) sempre aberta
+    # (via unlocked_phases=1, nem precisa de entrada aqui); cada fase
+    # seguinte libera com a fase ANTERIOR completa. Todas as 10 fases já
+    # estão conectadas ao menu.
+    _DEPENDENCIA_DESBLOQUEIO = {
+        1: "fase_1",
+        2: "fase_2",
+        3: "fase_3",
+        4: "fase_4",
+        5: "fase_5",
+        6: "fase_6",
+        7: "fase_7",
+        8: "fase_8",
+        9: "fase_9",
+    }
 
     def _fase_desbloqueada(self, index):
         """Além do avanço sequencial normal (unlocked_phases), algumas
@@ -571,16 +600,93 @@ class Game:
                 # mas Fase_4/Fase_5 não tocam nada, e sem isso a música do
                 # menu ficaria tocando por baixo delas o jogo inteiro.
                 _parar_musica_menu()
-                if index == 1:
-                    completed = run_fase2(
+                if index == 0:
+                    # Fase_1/fase_1.py: mesmo padrão de import tardio das
+                    # outras fases soltas -- pasta própria sem
+                    # npc_chatbot.py/inventario.py, então não precisa
+                    # purgar mais nada além do próprio módulo.
+                    fase1 = _importar_ponto_de_entrada(_FASE1_DIR, "fase_1")
+                    resultado = fase1.Jogo(
+                        character_image=CHARACTER_IMAGES.get(self.personagem_index),
+                        character_name=self.get_personagem_name(self.personagem_index),
+                        genero="m" if self.personagem_index == 0 else "f",
+                    ).executar()
+                    if resultado == "vitoria":
+                        _marcar_fase_completa("fase_1")
+                    pygame.display.set_caption("Escape.from_past()")
+                    _iniciar_musica_menu()
+                    self.build_buttons()
+                elif index == 1:
+                    # A própria Fase 2 (babbage_lovelace.py) já grava
+                    # "completo": true em progresso.json ao vencer -- não
+                    # precisa checar o valor devolvido aqui, só tocar a
+                    # música de novo e reconstruir os botões do mapa.
+                    run_fase2(
                         screen,
                         clock,
                         character_image=CHARACTER_IMAGES.get(self.personagem_index),
                         character_name=self.get_personagem_name(self.personagem_index),
                         genero="m" if self.personagem_index == 0 else "f",
                     )
-                    if completed:
-                        self.unlocked_phases = max(self.unlocked_phases, 3)
+                    _iniciar_musica_menu()
+                    self.build_buttons()
+                elif index == 2:
+                    # Fase_3/fase_3.py: já vinha com uma classe Jogo
+                    # própria (rodar(), não executar()) -- só precisou
+                    # aceitar character_image/character_name/genero e
+                    # devolver "vitoria"/None em vez de nunca devolver
+                    # nada (ver Pygame/Fase_3/fase_3.py, Jogo.rodar()).
+                    fase3 = _importar_ponto_de_entrada(_FASE3_DIR, "fase_3")
+                    resultado = fase3.Jogo(
+                        character_image=CHARACTER_IMAGES.get(self.personagem_index),
+                        character_name=self.get_personagem_name(self.personagem_index),
+                        genero="m" if self.personagem_index == 0 else "f",
+                    ).rodar()
+                    if resultado == "vitoria":
+                        _marcar_fase_completa("fase_3")
+                    pygame.display.set_caption("Escape.from_past()")
+                    _iniciar_musica_menu()
+                    self.build_buttons()
+                elif index == 5:
+                    # Fase_6/fase_6.py: mesmo padrão de import tardio,
+                    # pasta própria sem npc_chatbot.py/inventario.py.
+                    fase6 = _importar_ponto_de_entrada(_FASE6_DIR, "fase_6")
+                    resultado = fase6.Jogo(
+                        character_image=CHARACTER_IMAGES.get(self.personagem_index),
+                        character_name=self.get_personagem_name(self.personagem_index),
+                        genero="m" if self.personagem_index == 0 else "f",
+                    ).executar()
+                    if resultado == "vitoria":
+                        _marcar_fase_completa("fase_6")
+                    pygame.display.set_caption("Escape.from_past()")
+                    _iniciar_musica_menu()
+                    self.build_buttons()
+                elif index == 9:
+                    # Fase_10/assets/fase_10.py: última fase do jogo,
+                    # mesmo padrão de import tardio das demais soltas.
+                    fase10 = _importar_ponto_de_entrada(_FASE10_DIR, "fase_10")
+                    resultado = fase10.Jogo(
+                        character_image=CHARACTER_IMAGES.get(self.personagem_index),
+                        character_name=self.get_personagem_name(self.personagem_index),
+                        genero="m" if self.personagem_index == 0 else "f",
+                    ).executar()
+                    if resultado == "vitoria":
+                        _marcar_fase_completa("fase_10")
+                        # Cutscene de encerramento -- não é uma fase
+                        # clicável no mapa, roda automaticamente só
+                        # depois que o jogador vence a Fase 10 (ver
+                        # Pygame/cena_final/cena_final.py, Jogo.executar()).
+                        # Mesmo padrão de import tardio das demais fases
+                        # soltas; a pasta não tem nomes de módulo
+                        # repetidos com nenhuma outra, então não precisa
+                        # purgar mais nada além do próprio módulo.
+                        cena_final = _importar_ponto_de_entrada(_CENA_FINAL_DIR, "cena_final")
+                        cena_final.Jogo(
+                            character_image=CHARACTER_IMAGES.get(self.personagem_index),
+                            character_name=self.get_personagem_name(self.personagem_index),
+                            genero="m" if self.personagem_index == 0 else "f",
+                        ).executar()
+                    pygame.display.set_caption("Escape.from_past()")
                     _iniciar_musica_menu()
                     self.build_buttons()
                 elif index == 8:
@@ -660,6 +766,58 @@ class Game:
                     ).parar_tudo()
                     if resultado == "vitoria":
                         _marcar_fase_completa(chave_progresso)
+                    pygame.display.set_caption("Escape.from_past()")
+                    _iniciar_musica_menu()
+                    self.build_buttons()
+                elif index == 6:
+                    # Fase_7/fase_7.py: mesmo padrão de import tardio da
+                    # Fase 4/5 (ver acima) -- a pasta também tem seu
+                    # próprio npc_chatbot.py/inventario.py/audio_fase5.py/
+                    # config_fase5.py (mesmos nomes, conteúdo próprio),
+                    # daí o mesmo cuidado de purgar o cache antes de
+                    # importar. Jogo.executar() só devolve "vitoria" ao
+                    # vencer; sair pelo painel de configurações devolve
+                    # None (ver Pygame/Fase_7/fase_7.py, Jogo.executar()).
+                    modulo7 = _importar_ponto_de_entrada(
+                        _FASE7_DIR, "fase_7", "npc_chatbot", "inventario",
+                        "audio_fase5", "config_fase5",
+                    )
+                    resultado = modulo7.Jogo(
+                        character_image=CHARACTER_IMAGES.get(self.personagem_index),
+                        character_name=self.get_personagem_name(self.personagem_index),
+                        genero="m" if self.personagem_index == 0 else "f",
+                    ).executar()
+                    _importar_ponto_de_entrada(_FASE7_DIR, "audio_fase5").parar_tudo()
+                    if resultado == "vitoria":
+                        _marcar_fase_completa("fase_7")
+                    pygame.display.set_caption("Escape.from_past()")
+                    _iniciar_musica_menu()
+                    self.build_buttons()
+                elif index == 7:
+                    # Fase_8/fase_8.py: mesmo padrão de import tardio da
+                    # Fase 4/5/7 -- a pasta também tem seu próprio
+                    # npc_chatbot.py/inventario.py/audio_fase5.py/
+                    # config_fase5.py (mesmos nomes, conteúdo próprio),
+                    # daí o mesmo cuidado de purgar o cache antes de
+                    # importar. Assim como Fase_4/Fase_5, esta fase não
+                    # tem sistema de estrelas próprio -- é o menu que
+                    # grava só "completo": true ao vencer (ver
+                    # _marcar_fase_completa). Jogo.executar() só devolve
+                    # "vitoria" ao vencer; sair pelo painel de
+                    # configurações devolve None (ver
+                    # Pygame/Fase_8/fase_8.py, Jogo.executar()).
+                    modulo8 = _importar_ponto_de_entrada(
+                        _FASE8_DIR, "fase_8", "npc_chatbot", "inventario",
+                        "audio_fase5", "config_fase5",
+                    )
+                    resultado = modulo8.Jogo(
+                        character_image=CHARACTER_IMAGES.get(self.personagem_index),
+                        character_name=self.get_personagem_name(self.personagem_index),
+                        genero="m" if self.personagem_index == 0 else "f",
+                    ).executar()
+                    _importar_ponto_de_entrada(_FASE8_DIR, "audio_fase5").parar_tudo()
+                    if resultado == "vitoria":
+                        _marcar_fase_completa("fase_8")
                     pygame.display.set_caption("Escape.from_past()")
                     _iniciar_musica_menu()
                     self.build_buttons()

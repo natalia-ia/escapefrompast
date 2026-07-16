@@ -1,3 +1,4 @@
+import os
 import pygame
 import sys
 import json
@@ -8,6 +9,22 @@ import urllib.error
 
 pygame.init()
 
+# ---------------------------------------------------------------------------
+# Monta caminhos de assets a partir da pasta onde este arquivo .py está, em
+# vez de depender da pasta de onde o jogo é executado -- sem isso, os
+# caminhos relativos abaixo ("assets/...") só resolviam quando o script era
+# executado com a pasta desta fase como diretório atual; ao ser importado
+# pelo menu geral (Pygame/menu/jogo.py), o diretório atual é outro, e todo
+# asset falharia silenciosamente (caindo no placeholder cinza de
+# carregar_imagem). Mesmo padrão já usado em Fase_1/Fase_2/Fase_9/Fase_10.
+# ---------------------------------------------------------------------------
+PASTA_DO_SCRIPT = os.path.dirname(os.path.abspath(__file__))
+
+
+def caminho_asset(nome_relativo):
+    return os.path.join(PASTA_DO_SCRIPT, nome_relativo)
+
+
 LARGURA, ALTURA = 960, 600
 CINZA = (150, 150, 150)
 BRANCO = (240, 240, 240)
@@ -17,38 +34,38 @@ AZUL = (70, 110, 200)
 PRETO = (20, 20, 20)
 
 ASSETS = {
-    "fundo": "assets/cenario/cenario_fase3.png",
-    "corpo_personagem": "assets/decoracao/corpo do personagem.png",
-    "cartoes": "assets/interativos/cartoes.png",
-    "icone_chatbot": "assets/interativos/icone_chatbot.png",
-    "icone_inventario": "assets/interativos/icone_inventario.png",
-    "icone_configuracoes": "assets/interativos/icone_configuracoes.png",
-    "maquina_tabulacao": "assets/interativos/maquina_tabulacao.png",
-    "painel_config": "assets/interativos/painel_config.png",
-    "gaveta_fechada": "assets/interativos/gaveta_fechada.png",
-    "gaveta_aberta": "assets/interativos/gaveta_aberta.png",
-    "objetivo": "assets/interativos/objetivo.png",
-    "painel_ampliado": "assets/interativos/painel_ampliado.png",
-    "processando3": "assets/interativos/processando3.png",
-    "saindo": "assets/interativos/saindo.png",
+    "fundo": caminho_asset("assets/cenario/cenario_fase3.png"),
+    "corpo_personagem": caminho_asset("assets/decoracao/corpo do personagem.png"),
+    "cartoes": caminho_asset("assets/interativos/cartoes.png"),
+    "icone_chatbot": caminho_asset("assets/interativos/icone_chatbot.png"),
+    "icone_inventario": caminho_asset("assets/interativos/icone_inventario.png"),
+    "icone_configuracoes": caminho_asset("assets/interativos/icone_configuracoes.png"),
+    "maquina_tabulacao": caminho_asset("assets/interativos/maquina_tabulacao.png"),
+    "painel_config": caminho_asset("assets/interativos/painel_config.png"),
+    "gaveta_fechada": caminho_asset("assets/interativos/gaveta_fechada.png"),
+    "gaveta_aberta": caminho_asset("assets/interativos/gaveta_aberta.png"),
+    "objetivo": caminho_asset("assets/interativos/objetivo.png"),
+    "painel_ampliado": caminho_asset("assets/interativos/painel_ampliado.png"),
+    "processando3": caminho_asset("assets/interativos/processando3.png"),
+    "saindo": caminho_asset("assets/interativos/saindo.png"),
     # Tela de introdução (antes do jogo começar).
-    "fundo_intro": "assets/cenario/cena1.png",
+    "fundo_intro": caminho_asset("assets/cenario/cena1.png"),
     # Fundo da cena final (jogador anda até a máquina do tempo).
-    "fundo_final": "assets/cenario/cena2.png",
+    "fundo_final": caminho_asset("assets/cenario/cena2.png"),
     # Cena final: máquina do tempo aberta (antes de entrar) e fechada
     # (depois que o jogador entra), usadas na conclusão da fase 3.
-    "maquina_tempo_aberta": "assets/interativos/maquina_do_tempo2.png",
-    "maquina_tempo_fechada": "assets/interativos/maquina_do_tempo.png",
+    "maquina_tempo_aberta": caminho_asset("assets/interativos/maquina_do_tempo2.png"),
+    "maquina_tempo_fechada": caminho_asset("assets/interativos/maquina_do_tempo.png"),
     # Único documento que existe no cenário. Mostra o objetivo da missão
     # (usa a mesma imagem "objetivo" já carregada para a tela ampliada).
-    "p1_parado": "assets/personagem1/p1_parada.png",
-    "p1_andando1": "assets/personagem1/p1_andando.png",
-    "p1_andando2": "assets/personagem1/p1_andando2.png",
-    "p2_parado": "assets/personagem2/p2_parado.png",
-    "p2_andando1": "assets/personagem2/p2_andando.png",
-    "p2_andando2": "assets/personagem2/p2_andando2.png",
-    "musica_ambiente": "assets/musicas/ambiente.mp3",
-    "som_click": "assets/musicas/sons/click.mp3",
+    "p1_parado": caminho_asset("assets/personagem1/p1_parada.png"),
+    "p1_andando1": caminho_asset("assets/personagem1/p1_andando.png"),
+    "p1_andando2": caminho_asset("assets/personagem1/p1_andando2.png"),
+    "p2_parado": caminho_asset("assets/personagem2/p2_parado.png"),
+    "p2_andando1": caminho_asset("assets/personagem2/p2_andando.png"),
+    "p2_andando2": caminho_asset("assets/personagem2/p2_andando2.png"),
+    "musica_ambiente": caminho_asset("assets/musicas/ambiente.mp3"),
+    "som_click": caminho_asset("assets/musicas/sons/click.mp3"),
 }
 
 # Tela ampliada aberta ao interagir com cada objeto do cenário.
@@ -113,6 +130,13 @@ TEMPO_LIMITE_MS = 5 * 60 * 1000
 
 CADEADO_GAVETA_CORRETO = (2, 4)  # resposta da charada = "24" (horas do dia)
 
+# Charada do documento objetivo: reforça a MESMA pista da combinação da
+# gaveta ("quantas horas tem um dia inteiro" = 24), só que descoberta lendo
+# a anotação na margem do documento em vez de perguntar ao chatbot -- não
+# muda CADEADO_GAVETA_CORRETO, só dá um segundo caminho até a mesma pista.
+RESPOSTA_CHARADA_DOCUMENTO_HORAS = 24
+OPCOES_CHARADA_DOCUMENTO_HORAS = [12, 60, 24, 48]
+
 
 def carregar_imagem(caminho, tamanho, cor_fallback=CINZA, label=""):
     try:
@@ -133,6 +157,75 @@ def criar_hitbox_invisivel(tamanho):
     superficie = pygame.Surface(tamanho, pygame.SRCALPHA)
     superficie.fill((0, 0, 0, 0))
     return superficie
+
+
+# ---------------------------------------------------------------------------
+# Progresso (estrelas + tempo) -- mesmo arquivo/formato compartilhado que
+# Fase_2/Fase_9/Fase_4/Fase_5/Fase_1/Fase_6/Fase_10 já usam: {"estrelas":
+# 1-3, "completo": true, "tempo": "MM:SS"}. Esta fase TEM cronômetro
+# (TEMPO_LIMITE_MS, 5 minutos), então as estrelas são calculadas a partir
+# do tempo que sobrava no relógio no instante em que o jogador chega na
+# máquina do tempo -- mesmos limiares usados em todas as outras fases com
+# timer, pra estrela significar a mesma coisa em qualquer uma delas.
+# ---------------------------------------------------------------------------
+_PYGAME_DIR = os.path.dirname(PASTA_DO_SCRIPT)
+PROGRESSO_PATH = os.path.join(_PYGAME_DIR, "progresso.json")
+PROGRESSO_CHAVE_FASE = "fase_3"
+
+ESTRELAS_3_TEMPO_MIN = 25  # >= 25s sobrando -> 3 estrelas
+ESTRELAS_2_TEMPO_MIN = 15  # 15 a 24s sobrando -> 2 estrelas
+# < 15s sobrando -> 1 estrela (ver _calcular_estrelas)
+
+
+def _carregar_progresso():
+    """Lê Pygame/progresso.json inteiro (de todas as fases). Devolve um
+    dicionário vazio se o arquivo ainda não existir ou vier corrompido --
+    assim a gente nunca trava tentando salvar só porque o arquivo está
+    ausente ou malformado."""
+    if not os.path.exists(PROGRESSO_PATH):
+        return {}
+    try:
+        with open(PROGRESSO_PATH, "r", encoding="utf-8") as arquivo:
+            return json.load(arquivo)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _salvar_progresso(estrelas, tempo_formatado):
+    """Grava `estrelas` (1 a 3) e `tempo_formatado` ("MM:SS", quanto tempo
+    o jogador LEVOU) na chave PROGRESSO_CHAVE_FASE do progresso.json
+    compartilhado, preservando as chaves de outras fases que já estiverem
+    lá. Nunca sobrescreve um resultado MELHOR já salvo (mesma regra usada
+    nas outras fases)."""
+    progresso = _carregar_progresso()
+    anterior = progresso.get(PROGRESSO_CHAVE_FASE)
+    if anterior is not None and anterior.get("estrelas", 0) >= estrelas:
+        if anterior.get("tempo") is not None:
+            return
+        novo_registro = {**anterior, "estrelas": anterior.get("estrelas", estrelas), "completo": True, "tempo": tempo_formatado}
+    else:
+        novo_registro = {"estrelas": estrelas, "completo": True, "tempo": tempo_formatado}
+
+    progresso[PROGRESSO_CHAVE_FASE] = novo_registro
+    with open(PROGRESSO_PATH, "w", encoding="utf-8") as arquivo:
+        json.dump(progresso, arquivo, indent=2, ensure_ascii=False)
+
+
+def _calcular_estrelas(tempo_restante_seg):
+    """Devolve 1, 2 ou 3 conforme `tempo_restante_seg` (segundos que ainda
+    sobravam no cronômetro quando o jogador chegou na máquina do tempo)
+    contra os limiares acima."""
+    if tempo_restante_seg >= ESTRELAS_3_TEMPO_MIN:
+        return 3
+    if tempo_restante_seg >= ESTRELAS_2_TEMPO_MIN:
+        return 2
+    return 1
+
+
+def _formatar_tempo(segundos):
+    """Formata `segundos` (int/float) como "MM:SS"."""
+    total = max(0, int(segundos))
+    return f"{total // 60:02d}:{total % 60:02d}"
 
 
 def quebrar_texto(texto, fonte, largura_max):
@@ -201,7 +294,27 @@ class Jogador:
 
 
 class Jogo:
-    def __init__(self, personagem_escolhido=1):
+    """Ponto de entrada desta fase para o menu geral (Pygame/menu/jogo.py)
+    -- mesmo padrão de Fase_9/Fase_4/Fase_5/Fase_1/Fase_6/Fase_10: aceita
+    character_image/character_name/genero vindos do menu (personagem
+    escolhido lá continua o mesmo aqui, através de personagem_escolhido).
+    `rodar()` só devolve "vitoria" quando o jogador conclui a fase (chega
+    na máquina do tempo na cena final); em qualquer outro jeito de sair
+    (Esc, tempo esgotado sem reiniciar), devolve None. Fechar a JANELA
+    (evento QUIT) continua encerrando o programa INTEIRO, não só a fase --
+    mesmo comportamento de sempre desta fase, igual ao que já acontece em
+    Pygame/Fase_4/fase4_final.py e Pygame/Fase_5/fase_5_atualizada.py."""
+
+    def __init__(self, character_image=None, character_name="Jogador", genero="m"):
+        # genero "m" -> personagem 1 (prefixo "p1"), "f" -> personagem 2
+        # (prefixo "p2") -- mesma convenção de índice usada no resto do
+        # código desta fase (personagem_escolhido == 1 -> "p1").
+        personagem_escolhido = 1 if genero == "m" else 2
+        self.character_image = character_image
+        self.character_name = character_name or "Jogador"
+        self.vitoria_alcancada = False
+        self.saiu_por_fechar_janela = False
+
         self.tela = pygame.display.set_mode((LARGURA, ALTURA))
         pygame.display.set_caption("Escape.from_past()")
         self.clock = pygame.time.Clock()
@@ -265,6 +378,23 @@ class Jogo:
 
         self.img_objetivo = carregar_imagem(ASSETS["objetivo"], TAMANHO_ZOOM, CINZA, "objetivo")
         self.img_documento_colunas = carregar_imagem(ASSETS["objetivo"], TAMANHO_ZOOM, CINZA, "documento colunas")
+
+        # Charada do documento objetivo: 4 botões com números, um deles
+        # (24) é a resposta certa. Só marca o documento como "lido" quando
+        # o jogador clica na opção certa -- mesma dificuldade da gaveta
+        # (escolher entre poucas opções fixas), sem sorteio.
+        self.documento_objetivo_mensagem = "Releia a anotação na margem e clique na resposta certa."
+        largura_opcao, altura_opcao, espaco_opcao = 70, 40, 15
+        total_opcoes = (
+            len(OPCOES_CHARADA_DOCUMENTO_HORAS) * largura_opcao
+            + (len(OPCOES_CHARADA_DOCUMENTO_HORAS) - 1) * espaco_opcao
+        )
+        x0_opcao = self.zoom_rect.centerx - total_opcoes // 2
+        y_opcao = self.zoom_rect.bottom - 85
+        self.documento_rects_opcoes = {
+            valor: pygame.Rect(x0_opcao + i * (largura_opcao + espaco_opcao), y_opcao, largura_opcao, altura_opcao)
+            for i, valor in enumerate(OPCOES_CHARADA_DOCUMENTO_HORAS)
+        }
         self.img_painel_fundo = carregar_imagem(ASSETS["painel_ampliado"], TAMANHO_ZOOM, CINZA, "painel")
         self.img_maquina_fundo = carregar_imagem(ASSETS["processando3"], TAMANHO_ZOOM, CINZA, "maquina")
         self.img_recompensa = carregar_imagem(ASSETS["saindo"], TAMANHO_ZOOM, CINZA, "recompensa")
@@ -469,6 +599,13 @@ class Jogo:
         self.config_botao_reiniciar = pygame.Rect(
             self.zoom_rect.centerx - 110, self.zoom_rect.bottom - 90, 220, 40
         )
+        # "Sair" aqui significa voltar pro mapa de fases (não fechar o
+        # jogo inteiro) -- mesmo botão que já existe no painel de
+        # configurações de Fase_2/Fase_9 (config_fase2/config_fase9.
+        # abrir_painel_config devolvendo "sair").
+        self.config_botao_sair = pygame.Rect(
+            self.zoom_rect.centerx - 110, self.zoom_rect.bottom - 45, 220, 40
+        )
 
         try:
             pygame.mixer.music.load(ASSETS["musica_ambiente"])
@@ -573,12 +710,33 @@ class Jogo:
             if self.jogador.rect.colliderect(self.maquina_tempo_rect):
                 self.final_estado = "fechando"
                 self.final_transicao_inicio = pygame.time.get_ticks()
+                # Congela o tempo que sobrava no cronômetro NESTE instante
+                # exato (antes de qualquer coisa mudar) -- é o valor usado
+                # pra calcular as estrelas, mesmo ponto de cálculo que
+                # babbage_lovelace.py/puzzle_terminal.py usam (tempo
+                # restante no momento da vitória, não quando a tela
+                # termina de aparecer).
+                self.tempo_restante_vitoria_seg = self._tempo_restante_ms() / 1000
                 self._tocar_click()
 
         elif self.final_estado == "fechando":
             agora = pygame.time.get_ticks()
             if agora - self.final_transicao_inicio >= self.final_duracao_fechando_ms:
                 self.final_estado = "concluido"
+                self.final_concluido_inicio = agora
+
+                estrelas = _calcular_estrelas(self.tempo_restante_vitoria_seg)
+                tempo_gasto_seg = (TEMPO_LIMITE_MS / 1000) - self.tempo_restante_vitoria_seg
+                _salvar_progresso(estrelas, _formatar_tempo(tempo_gasto_seg))
+                self.vitoria_alcancada = True
+
+        elif self.final_estado == "concluido":
+            # Segura a mensagem "Fase 3 concluída!" por um instante antes
+            # de devolver o controle pro menu (mesmo espírito do banner de
+            # vitória de 2s usado em Fase_2/Fase_9).
+            agora = pygame.time.get_ticks()
+            if agora - self.final_concluido_inicio >= 2000:
+                self.rodando = False
 
     def _desenhar_final(self):
         self.tela.blit(self.fundo_final, (0, 0))
@@ -586,6 +744,8 @@ class Jogo:
         if self.final_estado == "andando":
             self.tela.blit(self.maquina_tempo_aberta, self.maquina_tempo_pos)
             self.jogador.desenhar(self.tela)
+            nome_surf = self.font_pequena.render(self.character_name, True, BRANCO)
+            self.tela.blit(nome_surf, nome_surf.get_rect(midtop=(self.jogador.rect.centerx, self.jogador.rect.bottom + 4)))
 
             area_interacao = self.maquina_tempo_rect.inflate(RAIO_INTERACAO * 2, RAIO_INTERACAO * 2)
             if area_interacao.colliderect(self.jogador.rect):
@@ -643,6 +803,10 @@ class Jogo:
             self._reiniciar_jogo()
         elif evento.type == pygame.KEYDOWN and evento.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
             self._reiniciar_jogo()
+        elif evento.type == pygame.KEYDOWN and evento.key == pygame.K_ESCAPE:
+            # Esc aqui desiste em vez de reiniciar -- volta pro mapa de
+            # fases sem contar como vitória (mesma convenção do resto).
+            self.rodando = False
 
     def _desenhar_tempo_esgotado(self):
         self.tela.blit(self.fundo, (0, 0))
@@ -729,6 +893,11 @@ class Jogo:
             self._reiniciar_jogo()
             return
 
+        if self.config_botao_sair.collidepoint(pos):
+            self._tocar_click()
+            self.rodando = False
+            return
+
     def _desenhar_configuracoes(self):
         titulo = self.font_titulo.render("Configurações", True, BRANCO)
         self.tela.blit(titulo, (self.zoom_rect.left + 40, self.zoom_rect.top + 40))
@@ -771,14 +940,16 @@ class Jogo:
         texto_reiniciar = self.font_texto.render("Reiniciar jogo", True, BRANCO)
         self.tela.blit(texto_reiniciar, texto_reiniciar.get_rect(center=self.config_botao_reiniciar.center))
 
+        pygame.draw.rect(self.tela, AZUL, self.config_botao_sair, border_radius=6)
+        texto_sair = self.font_texto.render("Sair para o mapa", True, BRANCO)
+        self.tela.blit(texto_sair, texto_sair.get_rect(center=self.config_botao_sair.center))
+
     # =================================================================
     # ZOOM
     # =================================================================
     def abrir_zoom(self, modo):
         self.tela_ampliada_atual = modo
-        if modo == "documento_objetivo":
-            self.estado["documento_objetivo_lido"] = True
-        elif modo == "documento_colunas":
+        if modo == "documento_colunas":
             self.estado["documento_colunas_lido"] = True
 
     def fechar_zoom(self):
@@ -794,6 +965,7 @@ class Jogo:
     def processar_eventos(self):
         for evento in pygame.event.get():
             if evento.type == pygame.QUIT:
+                self.saiu_por_fechar_janela = True
                 self.rodando = False
                 continue
 
@@ -815,6 +987,14 @@ class Jogo:
 
             if self.tela_ampliada_atual is not None:
                 self._processar_evento_zoom(evento)
+                continue
+
+            # Fora de qualquer sub-tela (zoom, chat, intro, final, tempo
+            # esgotado), Esc volta direto pro mapa de fases -- mesma
+            # convenção usada em todas as outras fases já conectadas ao
+            # menu (Fase_2/Fase_9: "ESC volta ao mapa de fases").
+            if evento.type == pygame.KEYDOWN and evento.key == pygame.K_ESCAPE:
+                self.rodando = False
                 continue
 
             if evento.type == pygame.MOUSEBUTTONDOWN:
@@ -890,6 +1070,20 @@ class Jogo:
             self._clicar_gaveta(evento.pos)
         elif self.tela_ampliada_atual == "configuracoes":
             self._clicar_configuracoes(evento.pos)
+        elif self.tela_ampliada_atual == "documento_objetivo":
+            self._clicar_documento_objetivo(evento.pos)
+
+    def _clicar_documento_objetivo(self, pos):
+        if self.estado["documento_objetivo_lido"]:
+            return
+        for valor, rect in self.documento_rects_opcoes.items():
+            if rect.collidepoint(pos):
+                if valor == RESPOSTA_CHARADA_DOCUMENTO_HORAS:
+                    self.estado["documento_objetivo_lido"] = True
+                    self.documento_objetivo_mensagem = "Correto! Anote esse número -- pode ser útil na gaveta."
+                else:
+                    self.documento_objetivo_mensagem = "Não é bem isso... releia a anotação na margem."
+                return
 
     def _clicar_painel(self, pos):
         for modo, rect in self.painel_rects_modo.items():
@@ -1200,6 +1394,11 @@ class Jogo:
 
         self.jogador.desenhar(self.tela)
 
+        # Nome do personagem escolhido no menu geral, centralizado embaixo
+        # dele -- mesmo padrão visual de Fase_2/Fase_9/Fase_1/Fase_6/Fase_10.
+        nome_surf = self.font_pequena.render(self.character_name, True, BRANCO)
+        self.tela.blit(nome_surf, nome_surf.get_rect(midtop=(self.jogador.rect.centerx, self.jogador.rect.bottom + 4)))
+
         if self.tela_ampliada_atual is None and not self.chat_ativo:
             self._desenhar_dica_interacao()
 
@@ -1209,15 +1408,7 @@ class Jogo:
         if self.tela_ampliada_atual is not None:
             self._desenhar_moldura_zoom()
             if self.tela_ampliada_atual == "documento_objetivo":
-                self._desenhar_documento(
-                    self.img_objetivo,
-                    "Documento: Objetivo da Tabulação",
-                    [
-                        '"Conte apenas os registros de trabalhadores adultos."',
-                        "Os cartoes perfurados necessarios estao guardados na "
-                        "gaveta da escrivaninha, trancada com um cadeado.",
-                    ],
-                )
+                self._desenhar_documento_objetivo()
             elif self.tela_ampliada_atual == "documento_colunas":
                 linhas = [f"Coluna {i + 1}: {c}" for i, c in enumerate(COLUNAS_DISPONIVEIS)]
                 self._desenhar_documento(
@@ -1328,6 +1519,57 @@ class Jogo:
         pygame.draw.rect(self.tela, VERMELHO, self.botao_fechar_rect, border_radius=6)
         texto_x = self.font_texto.render("X", True, BRANCO)
         self.tela.blit(texto_x, texto_x.get_rect(center=self.botao_fechar_rect.center))
+
+    def _desenhar_documento_objetivo(self):
+        """Documento: mostra o objetivo da missão + uma charada simples
+        (mesma dificuldade da gaveta) cuja resposta reforça a pista da
+        combinação do cadeado. Só marca documento_objetivo_lido quando o
+        jogador clica na opção certa (ver _clicar_documento_objetivo)."""
+        self.tela.blit(self.img_objetivo, self.zoom_rect)
+
+        caixa_texto = pygame.Rect(self.zoom_rect.left, self.zoom_rect.bottom - 260, self.zoom_rect.width, 260)
+        overlay = pygame.Surface(caixa_texto.size, pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 190))
+        self.tela.blit(overlay, caixa_texto.topleft)
+
+        titulo = self.font_titulo.render("Documento: Objetivo da Tabulação", True, BRANCO)
+        self.tela.blit(titulo, (caixa_texto.left + 15, caixa_texto.top + 8))
+
+        linhas_texto = [
+            '"Conte apenas os registros de trabalhadores adultos."',
+            "Os cartões perfurados necessários estão guardados na gaveta "
+            "da escrivaninha, trancada com um cadeado de dois dígitos.",
+            "Anotação a lápis na margem: 'O cadeado abre com o número de "
+            "horas que o relógio marca ao completar uma volta inteira do dia.'",
+        ]
+        y = caixa_texto.top + 42
+        for linha in linhas_texto:
+            for sub in quebrar_texto(linha, self.font_pequena, caixa_texto.width - 30):
+                render = self.font_pequena.render(sub, True, BRANCO)
+                self.tela.blit(render, (caixa_texto.left + 15, y))
+                y += 19
+
+        if self.estado["documento_objetivo_lido"]:
+            confirmado = self.font_pequena.render(
+                "(Você já decifrou essa anotação.)", True, (170, 220, 170)
+            )
+            self.tela.blit(confirmado, (caixa_texto.left + 15, caixa_texto.bottom - 24))
+            return
+
+        pergunta = self.font_pequena.render("Quantas horas tem um dia completo?", True, BRANCO)
+        self.tela.blit(pergunta, (caixa_texto.left + 15, caixa_texto.top + 145))
+
+        for valor, rect in self.documento_rects_opcoes.items():
+            pygame.draw.rect(self.tela, AZUL, rect, border_radius=6)
+            pygame.draw.rect(self.tela, BRANCO, rect, width=1, border_radius=6)
+            texto_valor = self.font_texto.render(str(valor), True, BRANCO)
+            self.tela.blit(texto_valor, texto_valor.get_rect(center=rect.center))
+
+        for i, linha in enumerate(
+            quebrar_texto(self.documento_objetivo_mensagem, self.font_pequena, caixa_texto.width - 30)
+        ):
+            msg = self.font_pequena.render(linha, True, BRANCO)
+            self.tela.blit(msg, (caixa_texto.left + 15, caixa_texto.bottom - 22 - i * 18))
 
     def _desenhar_documento(self, imagem, titulo, linhas_texto):
         self.tela.blit(imagem, self.zoom_rect)
@@ -1512,10 +1754,27 @@ class Jogo:
             self.desenhar()
             self.clock.tick(60)
 
-        pygame.quit()
-        sys.exit()
+        # Sai da fase por qualquer caminho -- para a música de fundo, pra
+        # nada dela vazar pro menu (mesmo motivo de
+        # audio_fase2.parar_tudo()/audio_fase9.parar_tudo() nas outras
+        # fases).
+        try:
+            pygame.mixer.music.stop()
+        except pygame.error:
+            pass
+
+        if self.saiu_por_fechar_janela:
+            # Fechar a JANELA (não só sair da fase) continua encerrando o
+            # programa inteiro -- mesmo comportamento de sempre desta
+            # fase, igual ao que já acontece em Fase_4/fase4_final.py e
+            # Fase_5/fase_5_atualizada.py, fora do que dá pra controlar
+            # daqui.
+            pygame.quit()
+            sys.exit()
+
+        return "vitoria" if self.vitoria_alcancada else None
 
 
 if __name__ == "__main__":
-    jogo = Jogo(personagem_escolhido=2)
+    jogo = Jogo(genero="f")
     jogo.rodar()
