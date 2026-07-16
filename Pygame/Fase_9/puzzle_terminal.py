@@ -459,6 +459,10 @@ class EstadoPuzzleTerminal:
         self.alvo_selecionada = None
 
     def etapa_atual_dados(self):
+        # Atalho pra pegar o dicionário (ação/alvo/pista) da etapa de
+        # comando em que o jogador está agora -- só faz sentido chamar
+        # fora da etapa WIMP (ver em_etapa_wimp()), quem chama já garante
+        # isso antes.
         return ETAPAS_COMANDO[self.etapa_atual]
 
     def reembaralhar_opcoes(self):
@@ -583,9 +587,14 @@ class _Botao:
         self.hover = False
 
     def atualizar_hover(self, mouse_pos):
+        # Chamado todo frame com a posição atual do mouse, pra saber se
+        # deve desenhar o botão "aceso" (COR_AMBAR) ou apagado (COR_AMBAR_DIM).
         self.hover = self.rect.collidepoint(mouse_pos)
 
     def clicado(self, evento):
+        # True se este evento é um clique do botão esquerdo dentro da
+        # área do botão -- mesmo teste usado em common.Button.clicked na
+        # Fase 2.
         return (
             evento.type == pygame.MOUSEBUTTONDOWN
             and evento.button == 1
@@ -593,6 +602,9 @@ class _Botao:
         )
 
     def desenhar(self, tela, fonte, selecionado=False):
+        # `selecionado` tem prioridade sobre `hover` (usado pelas listas
+        # de AÇÃO/ALVO pra manter destacada a opção que o jogador já
+        # escolheu, mesmo com o mouse em cima de outro botão).
         if selecionado:
             cor_fundo, cor_borda, cor_texto = COR_FUNDO_SELECIONADO, COR_AMBAR_BRILHO, COR_AMBAR_BRILHO
         elif self.hover:
