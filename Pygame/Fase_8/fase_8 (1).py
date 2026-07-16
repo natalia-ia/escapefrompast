@@ -182,7 +182,7 @@ def _parar_audio_seguro():
 # =====================================================================
 # --- Desafio da Cena 2: senha do cofre (4 dígitos) ---
 # 1964 = ano em que a IBM lançou o System/360. 
-SENHA_COFRE = "1964"
+SENHA_COFRE = "1965"
 
 # --- Desafio da Cena da Impressora: reordenar letras e números ---
 # CODIGO_IMPRESSORA_CORRETO é a resposta certa. CODIGO_EXIBIDO é a
@@ -469,7 +469,7 @@ class Jogo:
             "FUNDO DA CENA 1\n(escritório da IBM)",
         )
         self.img_impressora = carregar_imagem(
-            ASSETS["impressora"], (110, 120), CINZA_METAL, "IMPRESSORA",
+            ASSETS["impressora"], (220, 250), CINZA_METAL, "IMPRESSORA",
         )
         self.img_fundo_cena3 = carregar_imagem(
             ASSETS["fundo_cena3"], (LARGURA, ALTURA), (60, 65, 75),
@@ -543,7 +543,7 @@ class Jogo:
         )
 
         self.img_npc = carregar_imagem(
-            ASSETS["npc"], (155, 305), (60, 90, 130), "ENGENHEIRO\nIBM",
+            ASSETS["npc"], (155, 280), (60, 90, 130), "ENGENHEIRO\nIBM",
         )
 
         self.img_vitoria1 = carregar_imagem(
@@ -576,14 +576,14 @@ class Jogo:
 
         # --- Impressora (Cena 1) - só clicável depois do cartão achado ---
         # AJUSTE a posição para onde a impressora aparece no seu fundo.
-        self.rect_impressora = self.img_impressora.get_rect(midbottom=(320, ALTURA - 121))
+        self.rect_impressora = self.img_impressora.get_rect(midbottom=(600, ALTURA - 70))
         self.ponto_interacao_impressora = (
             self.rect_impressora.left - 30,
             self.jogador.rect.centery,
         )
 
         # --- NPC (engenheiro IBM), parado na Cena 1 ---
-        self.rect_npc = self.img_npc.get_rect(midleft=(700, ALTURA - 220))
+        self.rect_npc = self.img_npc.get_rect(midleft=(350, ALTURA - 220))
 
         # --- Chatbot do NPC integrado à IA local (Ollama) ---
         self.npc_chat = NPCChatbot(
@@ -607,7 +607,7 @@ class Jogo:
 
         # --- Seta de navegação (Cena 1 -> Cena 3) ---
         self.rect_seta_avancar = pygame.Rect(0, 0, 56, 56)
-        self.rect_seta_avancar.midright = (LARGURA - 15, ALTURA // 2)
+        self.rect_seta_avancar.midright = (LARGURA - 80, ALTURA // 2 + 40)
         self.ponto_interacao_seta = (
             self.rect_seta_avancar.left - 40,
             self.jogador.rect.centery,
