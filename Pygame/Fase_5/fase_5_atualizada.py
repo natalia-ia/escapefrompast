@@ -9,6 +9,8 @@ import sys
 import pygame
 from inventario import Inventario, ItemColecionavel
 from npc_chatbot import NPCChatbot
+import audio_fase5
+import config_fase5 
 
 # =====================================================================
 # 1. CONFIGURAÇÕES GERAIS DA JANELA E DO JOGO
@@ -144,7 +146,11 @@ def _parar_audio_seguro():
 
 ASSETS = {
     # Fundo da tela de MENU inicial. Sugestão: 960x600 px.
-    "fundo_intro": caminho_asset("assets/fundo_intro.png"),
+    # Duas variantes da tela de introdução: dependem de qual personagem
+    # foi escolhido na tela "personagens" do menu geral (fundo_intro1 =
+    # Personagem 1, fundo_intro2 = Personagem 2), mesmo padrão da Fase 4.
+    "fundo_intro1": caminho_asset("assets/fundo_intro1.png"),
+    "fundo_intro2": caminho_asset("assets/fundo_intro2.png"),
 
     # Avatar do jogador (mesmo personagem das outras fases, se quiser
     # reaproveitar). Sugestão: 138x288 px, fundo transparente (PNG).
@@ -199,8 +205,15 @@ ASSETS = {
     # não existir, um triângulo simples é desenhado no lugar.
     "seta_direita": caminho_asset("assets/seta_direita.png"),
 
+    # Ícone quadrado do botão de configurações (canto superior direito).
+    "icone_configuracao": caminho_asset("assets/icone_configuracao.png"),
+
+
     # Telas finais.
-    "tela_vitoria": caminho_asset("assets/vitoria.png"),
+    # Duas variantes da tela de vitória, mesma regra do fundo_intro1/2
+    # acima (depende do personagem escolhido no menu geral).
+    "tela_vitoria1": caminho_asset("assets/vitoria1.png"),
+    "tela_vitoria2": caminho_asset("assets/vitoria2.png"),
     "tela_derrota": caminho_asset("assets/derrota.png"),
 
     # (Opcional) Fonte .ttf de época. Deixe None para usar a padrão.
@@ -466,7 +479,28 @@ class Jogo:
         self.tela = pygame.display.set_mode((LARGURA, ALTURA))
         pygame.display.set_caption("Fase 5 - Z3 e Colossus (1941-1943)")
         self.relogio = pygame.time.Clock()
-        self.character_name = character_name
+        self.character_name = character_name or "Jogador"
+
+        # --- Personagem escolhido na tela "personagens" do menu geral ---
+        # "m" -> Personagem 1, "f" -> Personagem 2 (mesma convenção usada
+        # pelo menu para Fase 2/9/4). Qualquer valor inesperado cai em
+        # "m", pra esta fase nunca quebrar por causa disso. É a partir de
+        # personagem_escolhido que decidimos o fundo de intro e a tela
+        # de vitória (o sprite do avatar já usava `genero` direto, ver
+        # mais abaixo, perto de "Escolhe o conjunto de sprites").
+        self.genero = genero if genero in ("m", "f") else "m"
+        self.personagem_escolhido = 1 if self.genero == "m" else 2
+        self.character_image = character_image
+
+        # Ícone do botão de configurações (parado / hover, cresce um
+        # pouco quando o mouse passa por cima, mesmo efeito do gear da Fase 2) ---
+        self.img_config = carregar_imagem(
+            ASSETS["icone_configuracao"], (36, 36), CINZA_CLARO, "CONFIG",
+        )
+        self.img_config_hover = carregar_imagem(
+            ASSETS["icone_configuracao"], (42, 42), CINZA_CLARO, "CONFIG",
+        )
+        
 
         # --- Inventário de colecionáveis (compartilhável entre fases) ---
         self.inventario = inventario if inventario is not None else Inventario()
@@ -477,8 +511,16 @@ class Jogo:
         self.fonte_pequena = carregar_fonte(ASSETS["fonte"], 20)
 
         # --- Imagens ---
-        self.img_fundo_intro = carregar_imagem(
-            ASSETS["fundo_intro"], (LARGURA, ALTURA), PRETO, "FUNDO DA INTRO",
+        self.img_fundo_intro1 = carregar_imagem(
+            ASSETS["fundo_intro1"], (LARGURA, ALTURA), PRETO, "FUNDO DA INTRO\n(personagem 1)",
+        )
+        self.img_fundo_intro2 = carregar_imagem(
+            ASSETS["fundo_intro2"], (LARGURA, ALTURA), PRETO, "FUNDO DA INTRO\n(personagem 2)",
+        )
+        # Escolhe a variante certa conforme o personagem escolhido no
+        # menu geral (self.personagem_escolhido == 1 ou 2).
+        self.img_fundo_intro = (
+            self.img_fundo_intro1 if self.personagem_escolhido == 1 else self.img_fundo_intro2
         )
         self.img_fundo_cena1 = carregar_imagem(
             ASSETS["fundo_cena1"], (LARGURA, ALTURA), AZUL_ACO,
@@ -552,8 +594,16 @@ class Jogo:
             ASSETS["npc"], (155, 305), (115, 90, 130), "KONRAD\nZUSE",
         )
 
-        self.img_vitoria = carregar_imagem(
-            ASSETS["tela_vitoria"], (LARGURA, ALTURA), VERDE, "TELA DE VITÓRIA",
+        self.img_vitoria1 = carregar_imagem(
+            ASSETS["tela_vitoria1"], (LARGURA, ALTURA), VERDE, "TELA DE VITÓRIA\n(personagem 1)",
+        )
+        self.img_vitoria2 = carregar_imagem(
+            ASSETS["tela_vitoria2"], (LARGURA, ALTURA), VERDE, "TELA DE VITÓRIA\n(personagem 2)",
+        )
+        # Escolhe a variante certa conforme o personagem escolhido no
+        # menu geral (mesma regra usada no fundo_intro acima).
+        self.img_vitoria = (
+            self.img_vitoria1 if self.personagem_escolhido == 1 else self.img_vitoria2
         )
         self.img_derrota = carregar_imagem(
             ASSETS["tela_derrota"], (LARGURA, ALTURA), VERMELHO, "TELA DE DERROTA",
@@ -595,9 +645,10 @@ class Jogo:
                 "Você é Konrad Zuse, entre 1941 e 1943, dentro de um jogo de escape "
                 "room educativo. Responda SOMENTE perguntas relacionadas à Fase 5: "
                 "o computador Z3, o relé eletromecânico queimado, o desafio de "
-                "reconectar os circuitos, e o computador Colossus. Se o jogador pedir dicas sobre o computador"
+                "reconectar os circuitos. Se o jogador pedir dicas sobre o computador"
                 "Colossus, diga que na linguagem bits que 0 é desligado e 1 é ligado . Se o jogador "
-                "perguntar algo fora desse tema, responda educadamente que só pode "
+                "perguntar sobre os circuitos, diga apenas que tem relação com a sequência de cores."
+                "Se o jogador perguntar algo fora desse tema, responda educadamente que só pode "
                 "falar sobre esta fase. Responda sempre em português, em no máximo "
                 "3 frases curtas, sem revelar diretamente a solução dos desafios."
             ),
@@ -698,7 +749,7 @@ class Jogo:
         texto = f"{minutos:02d}:{segundos:02d}"
         cor = VERMELHO if restante <= 30 else BRANCO
 
-        fundo_rect = pygame.Rect(LARGURA - 130, 15, 110, 40)
+        fundo_rect = pygame.Rect(LARGURA // 2, 15, 110, 40)
         pygame.draw.rect(self.tela, (0, 0, 0, 150), fundo_rect, border_radius=8)
         render = self.fonte_texto.render(texto, True, cor)
         self.tela.blit(render, render.get_rect(center=fundo_rect.center))
@@ -761,6 +812,7 @@ class Jogo:
         self.desenhar_seta_avancar(self.rect_seta_avancar)
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
         
         # --- Chatbot do NPC: sempre por último, para ficar por cima de tudo ---
         if self.npc_chat.perto_do_jogador(self.jogador.rect) and not self.npc_chat.dialogo_aberto:
@@ -800,6 +852,7 @@ class Jogo:
         self.tela.blit(self.img_fundo_cena2, (0, 0))
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         titulo = self.fonte_texto.render(
             "Reconecte os circuitos na ordem correta:", True, BRANCO,
@@ -855,6 +908,7 @@ class Jogo:
         self.tela.blit(self.img_fundo_cena_dica1, (0, 0))
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         mouse_pos = pygame.mouse.get_pos()
         cor_botao = VERDE if self.botao_voltar_dica1.collidepoint(mouse_pos) else AMARELO_SEPIA
@@ -880,6 +934,7 @@ class Jogo:
         self.jogador.desenhar(self.tela)
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         cor_botao = VERDE if self.botao_voltar_cena3.collidepoint(mouse_pos) else AMARELO_SEPIA
         pygame.draw.rect(self.tela, cor_botao, self.botao_voltar_cena3, border_radius=10)
@@ -901,6 +956,7 @@ class Jogo:
         self.tela.blit(self.img_fundo_cena4, (0, 0))
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         titulo = self.fonte_texto.render(
             "Decodifique para verificar o Colossus:", True, BRANCO,
@@ -1105,8 +1161,19 @@ class Jogo:
                         self.reiniciar()
 
                 elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
-                    if self.estado == Jogo.MENU and self.botao_iniciar.collidepoint(evento.pos):
+                    # Botão de configurações: sempre acessível em qualquer cena
+                    # jogável. O painel É o "jogo pausado" (ver
+                    # config_fase5.abrir_painel_config()) — nada do resto do laço
+                    # roda enquanto ele está aberto.
+                    if self.estado != Jogo.MENU and config_fase5.icone_rect(LARGURA).collidepoint(evento.pos):
+                        resultado_config = config_fase5.abrir_painel_config(
+                            self.tela, self.relogio, self.img_config, self.img_config_hover,
+                        )
+                        if resultado_config == "sair":
+                            rodando = False
+                    elif self.estado == Jogo.MENU and self.botao_iniciar.collidepoint(evento.pos):
                         self.iniciar_cronometro()
+                        audio_fase5.iniciar_musica_fundo()
                         self.estado = Jogo.CENA1
 
                     # Clique no relé -> vira colecionável direto (sem cena própria)
@@ -1228,8 +1295,69 @@ class Jogo:
 
 
 # =====================================================================
-# 8. PONTO DE ENTRADA DO PROGRAMA
+# 8. PONTO DE ENTRADA DESTA FASE PARA O MENU GERAL
+# =====================================================================
+def run(character_image=None, character_name=None, genero="m", inventario=None):
+    """
+    Ponto de entrada da Fase 5, pronto para ser chamado pelo menu geral
+    do jogo (Pygame/menu/jogo.py) -- mesmo espírito de `run` em
+    fase2/fase2.py (run_fase2) e da Fase 4 (fase4_teste.run), usados
+    como modelo.
+
+    O menu geral já escolhe o personagem na sua própria tela
+    "personagens" (setas </>), antes do jogador entrar em qualquer
+    fase -- a escolha NÃO acontece aqui dentro da Fase 5. Esta função
+    só recebe o resultado dessa escolha e entrega para a classe Jogo,
+    exatamente como Game.do_action já faz hoje (chamando Jogo(...)
+    diretamente, com os mesmos três parâmetros):
+
+        modulo.Jogo(
+            character_image=CHARACTER_IMAGES.get(self.personagem_index),
+            character_name=self.get_personagem_name(self.personagem_index),
+            genero="m" if self.personagem_index == 0 else "f",
+        ).executar()
+
+    Parâmetros:
+        character_image: imagem do personagem vinda do menu geral
+            (CHARACTER_IMAGES.get(...)). Guardada em self.character_image
+            para uso futuro dentro da fase.
+        character_name: nome do personagem escolhido/renomeado no menu
+            geral. Guardado em self.character_name.
+        genero: "m" (Personagem 1) ou "f" (Personagem 2) -- é a partir
+            dele que a Fase 5 decide sozinha qual sprite, fundo de
+            intro e tela de vitória usar (ver Jogo.__init__).
+        inventario: opcional, para reaproveitar um inventário já
+            existente entre fases (mesmo uso que já existia antes).
+
+    Retorno: o mesmo que Jogo.executar() já devolve hoje -- a string
+    "vitoria" quando o jogador vence e clica no botão da tela de
+    vitória (nada quando a janela é fechada, pois o próprio laço
+    encerra o programa nesse caso).
+    """
+    jogo = Jogo(
+        inventario=inventario,
+        character_image=character_image,
+        character_name=character_name,
+        genero=genero,
+    )
+    return jogo.executar()
+
+
+def run_padrao():
+    """
+    Roda a Fase 5 isolada, fora do menu geral, com o Personagem 1 como
+    opção padrão (genero="m") -- útil para testar esta fase sozinha
+    (ex: `python fase_5.py`) sem precisar abrir o jogo completo nem
+    passar por nenhum menu.
+
+    Para testar a variante do Personagem 2 isoladamente, chame
+    run(genero="f") em vez desta função.
+    """
+    return run(genero="m")
+
+
+# =====================================================================
+# 9. PONTO DE ENTRADA DO PROGRAMA (rodando este arquivo sozinho)
 # =====================================================================
 if __name__ == "__main__":
-    jogo = Jogo()
-    jogo.executar()
+    run_padrao()

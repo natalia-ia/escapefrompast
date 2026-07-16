@@ -45,6 +45,8 @@ import math
 import pygame
 from inventario import Inventario, ItemColecionavel
 from npc_chatbot import NPCChatbot
+import audio_fase5        
+import config_fase5 
 
 # =====================================================================
 # 1. CONFIGURAÇÕES GERAIS DA JANELA E DO JOGO
@@ -54,7 +56,7 @@ FPS = 60
 
 # Tempo total da fase, em segundos (5 minutos)
 TEMPO_LIMITE_SEGUNDOS = 1 * 60
-FADE_DURATION_SECONDS = 0.35 # transição de tela
+
 
 # Cores utilitárias (RGB) usadas em textos e placeholders
 BRANCO      = (245, 245, 240)
@@ -148,6 +150,9 @@ ASSETS = {
 
     # Ícone de seta, usado na Cena 1 para ir até a Cena 3.
     "seta_direita": caminho_asset("assets/seta_direita.png"),
+
+    # Ícone quadrado do botão de configurações (canto superior direito).
+    "icone_configuracao": caminho_asset("assets/icone_configuracao.png"),
 
     # Tela final de VITÓRIA (ex: porta se abrindo, luz do lado de fora).
     # Duas variantes da tela de vitória, seguindo a mesma regra do
@@ -412,15 +417,29 @@ class Jogo:
     DERROTA = "derrota"
 
 
-    def __init__(self, inventario=None, personagem_escolhido=1):
+    def __init__(self, inventario=None, character_image=None, character_name=None, genero="m"):
         """
-        personagem_escolhido: 1 ou 2. Vem do menu principal do jogo
-        (a pasta ao lado das fases, onde o jogador escolhe o
-        personagem 1 ou 2 antes de entrar em qualquer fase). É esse
-        valor que decide qual fundo_intro/tela_vitoria vai aparecer
-        aqui na Fase 4. Quem chama `Jogo(...)` lá no menu principal
-        deve passar esse parâmetro; se ninguém passar nada (ex: ao
-        rodar este arquivo sozinho, para teste), o padrão é 1.
+        Esta assinatura segue exatamente o contrato que o menu geral do
+        jogo (Pygame/menu/jogo.py) já usa para chamar Fase_4, Fase_5 e
+        Fase_9 -- veja Game.do_action, no tratamento de "start_phase_3":
+
+            modulo.Jogo(
+                character_image=CHARACTER_IMAGES.get(self.personagem_index),
+                character_name=self.get_personagem_name(self.personagem_index),
+                genero="m" if self.personagem_index == 0 else "f",
+            ).executar()
+
+        A escolha do personagem acontece na tela "personagens" do MENU
+        GERAL (setas </> antes de clicar em qualquer fase), não aqui
+        dentro da Fase 4. Esta fase só recebe o resultado dessa escolha:
+
+        - genero: "m" (Personagem 1) ou "f" (Personagem 2). É a partir
+          disso que decidimos internamente qual conjunto de sprites
+          (avatar_*/avatar2_*), fundo de intro e tela de vitória usar.
+        - character_image / character_name: repassados pelo menu junto
+          com o genero (mesmo formato usado por Fase 2/9); guardamos os
+          dois para uso futuro dentro da fase (ex: exibir o nome do
+          personagem em algum lugar da interface).
         """
         pygame.init()
         self.tela = pygame.display.set_mode((LARGURA, ALTURA))
@@ -430,10 +449,28 @@ class Jogo:
         # --- Inventário de colecionáveis --- (ADICIONE ESSE BLOCO)
         self.inventario = inventario if inventario is not None else Inventario()
 
-        # --- Personagem escolhido no menu principal (1 ou 2) ---
-        # Guardamos com validação simples: qualquer valor diferente de
-        # 1 ou 2 cai no personagem 1, para o jogo nunca quebrar.
-        self.personagem_escolhido = personagem_escolhido if personagem_escolhido in (1, 2) else 1
+        # --- Personagem escolhido no MENU GERAL, recebido via `genero` ---
+        # "m" -> Personagem 1, "f" -> Personagem 2 (mesma convenção usada
+        # pelo menu para Fase 2/9). Qualquer valor inesperado cai em "m",
+        # para a fase nunca quebrar por causa disso.
+        self.genero = genero if genero in ("m", "f") else "m"
+        self.personagem_escolhido = 1 if self.genero == "m" else 2
+
+        # Guardados para uso futuro (ex.: mostrar o nome do personagem
+        # em algum ponto da interface desta fase).
+        self.character_image = character_image
+        self.character_name = character_name or (
+            "Personagem 1" if self.personagem_escolhido == 1 else "Personagem 2"
+        )
+
+        # --- Ícone do botão de configurações (parado / hover, cresce um
+        # pouco quando o mouse passa por cima, mesmo efeito do gear da Fase 2) ---
+        self.img_config = carregar_imagem(
+            ASSETS["icone_configuracao"], (36, 36), CINZA_CLARO, "CONFIG",
+        )
+        self.img_config_hover = carregar_imagem(
+            ASSETS["icone_configuracao"], (42, 42), CINZA_CLARO, "CONFIG",
+        )
 
         # --- Fontes ---
         self.fonte_titulo = carregar_fonte(ASSETS["fonte"], 30)
@@ -501,6 +538,11 @@ class Jogo:
             ASSETS["avatar2_andando2"], (138, 288), (120, 70, 70), "ANDANDO 2.2",
         )
 
+        # Tabela de consulta: sprites de cada personagem, indexados por
+        # personagem_escolhido - 1 (0 = Personagem 1, 1 = Personagem 2).
+        # Não existe seleção aqui dentro da Fase 4 -- quem decide qual
+        # entrada usar é sempre self.personagem_escolhido, definido no
+        # __init__ a partir do `genero` recebido do MENU GERAL.
         self.opcoes_personagens = [
             {
                 "nome": "Personagem 1",
@@ -513,11 +555,13 @@ class Jogo:
                 "andando": [self.img_avatar2_andando1, self.img_avatar2_andando2],
             },
         ]
-        self.personagem_selecionado = 0  # índice do personagem ativo (0 = o primeiro)
 
+        # Cria o jogador já com os sprites do personagem escolhido no
+        # menu geral (não sempre o Personagem 1, como estava antes).
+        opcao_personagem = self.opcoes_personagens[self.personagem_escolhido - 1]
         self.jogador = Jogador(
-            frame_parado=self.img_avatar_parado,
-            frames_andando=[self.img_avatar_andando1, self.img_avatar_andando2],
+            frame_parado=opcao_personagem["parado"],
+            frames_andando=opcao_personagem["andando"],
             posicao_inicial=(80, ALTURA - 300),
         )
 
@@ -553,18 +597,6 @@ class Jogo:
         self.botao_iniciar = pygame.Rect(0, 0, 220, 60)
         self.botao_iniciar.center = (LARGURA - 270, 500)
 
-        # Retângulos clicáveis de cada miniatura de personagem,
-        # exibidos lado a lado no menu. Ajuste a posição/tamanho como
-        # quiser - aqui ficaram no canto inferior esquerdo do menu.
-        self.rects_personagens = []
-        largura_miniatura, altura_miniatura = 90, 140
-        espaco_entre = 20
-        x_inicial = 60
-        for indice in range(len(self.opcoes_personagens)):
-            rect = pygame.Rect(0, 0, largura_miniatura, altura_miniatura)
-            rect.topleft = (x_inicial + indice * (largura_miniatura + espaco_entre), 380)
-            self.rects_personagens.append(rect)
-
         # Botões "Reiniciar" das telas de Vitória e Derrota
         self.botao_reiniciar_vitoria = pygame.Rect(0, 0, 260, 60)
         self.botao_reiniciar_vitoria.center = (LARGURA // 2, ALTURA // 2 + 120)
@@ -592,7 +624,9 @@ class Jogo:
                 "escape educativo. Responda SOMENTE perguntas relacionadas à Fase 4: "
                 "a Máquina de Turing, o enigma da fita binária (blocos de 5 bits que "
                 "representam letras do alfabeto, A=1 a Z=26), e o contexto histórico "
-                "de 1936. Alan Turing deu o nome da sua maquina de criptografia (Maquina de Turing) que conseguiu decodificar mensagens da máquina inimiga (ENIGMA) : chamada BOMBE"
+                "de 1936. Quando o jogador perguntar algo sobre o nome da Maquina de Turing, responda:"
+                " o nome da sua maquina de criptografia (Maquina de Turing) que conseguiu decodificar mensagens da máquina inimiga chama BOMBE."
+                "Ps: o nome da maquina não é ENIGMA e sim BOMBE."
                 "Se o jogador perguntar algo fora desse tema, responda "
                 "educadamente que só pode falar sobre esta fase. "
                 "Responda sempre em português,  em no máximo 3 frases curtas, sem "
@@ -665,8 +699,8 @@ class Jogo:
 
         # AJUSTE essas coordenadas para coincidir com onde o bilhete
         # aparece visualmente na sua imagem de fundo (cena_dica2_bilhete.png)
-        self.rect_bilhete = pygame.Rect(0, 0, 220, 140)
-        self.rect_bilhete.center = (LARGURA // 2, ALTURA // 2 + 60)
+        self.rect_bilhete = pygame.Rect(0, 0, 330, 230)
+        self.rect_bilhete.center = (LARGURA // 2, ALTURA // 2 + 80)
 
         # --- Ícone de inventário (canto inferior direito, sempre visível) ---
         self.botao_inventario = pygame.Rect(0, 0, 70, 70)
@@ -706,7 +740,7 @@ class Jogo:
         texto = f"{minutos:02d}:{segundos:02d}"
         cor = VERMELHO if restante <= 30 else BRANCO
 
-        fundo_rect = pygame.Rect(LARGURA - 130, 15, 110, 40)
+        fundo_rect = pygame.Rect(LARGURA // 2, 15, 110, 40)
         pygame.draw.rect(self.tela, (0, 0, 0, 150), fundo_rect, border_radius=8)
         render = self.fonte_texto.render(texto, True, cor)
         self.tela.blit(render, render.get_rect(center=fundo_rect.center))
@@ -758,6 +792,7 @@ class Jogo:
         self.desenhar_seta_avancar(self.rect_seta_avancar)
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
         
         # --- Chatbot do NPC ---
         if self.npc_chat.perto_do_jogador(self.jogador.rect) and not self.npc_chat.dialogo_aberto:
@@ -802,6 +837,7 @@ class Jogo:
         self.tela.blit(self.img_fundo_cena_dica, (0, 0))
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         mouse_pos = pygame.mouse.get_pos()
         cor_botao = VERDE if self.botao_voltar_dica.collidepoint(mouse_pos) else AMARELO_SEPIA
@@ -819,6 +855,7 @@ class Jogo:
     def desenhar_cena2(self):
         self.tela.blit(self.img_fundo_cena2, (0, 0))
         self.desenhar_cronometro()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         titulo = self.fonte_texto.render(
             "A fita da máquina imprimiu o seguinte código:", True, BRANCO,
@@ -886,6 +923,7 @@ class Jogo:
         self.jogador.desenhar(self.tela)
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         # --- Botão "Voltar" (-> Cena 1) ---
         cor_botao = VERDE if self.botao_voltar_cena3.collidepoint(mouse_pos) else AMARELO_SEPIA
@@ -910,6 +948,7 @@ class Jogo:
         Dica 2) e confirma com ENTER."""
         self.tela.blit(self.img_fundo_cena4, (0, 0))
         self.desenhar_cronometro()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         titulo = self.fonte_texto.render(
             "Pressione ENTER", True, BRANCO,
@@ -955,6 +994,7 @@ class Jogo:
         self.tela.blit(self.img_fundo_cena_dica2, (0, 0))
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         mouse_pos = pygame.mouse.get_pos()
 
@@ -967,7 +1007,7 @@ class Jogo:
         # --- Dica visual: um contorno pulsando/discreto ao redor do bilhete,
         # só enquanto ele ainda pode ser coletado ---
         if not self.bilhete_coletado:
-            pygame.draw.rect(self.tela, AMARELO_SEPIA, self.rect_bilhete, width=3, border_radius=6)
+            pygame.draw.rect(self.tela, AMARELO_SEPIA, self.rect_bilhete, width=6, border_radius=10)
 
 
         cor_botao = VERDE if self.botao_voltar_dica2.collidepoint(mouse_pos) else AMARELO_SEPIA
@@ -1061,7 +1101,7 @@ class Jogo:
     def reiniciar(self):
         """Reseta a posição do jogador, o campo de resposta e volta ao
         menu inicial, permitindo jogar novamente."""
-        self.jogador.rect.topleft = (80, ALTURA - 150)
+        self.jogador.rect.topleft = self.POSICAO_INICIAL_JOGADOR
         self.caixa_resposta.texto = ""
         self.caixa_resposta_cena4.texto = ""
         self.mensagem_erro = ""
@@ -1109,8 +1149,19 @@ class Jogo:
 
                 # --- Clique do mouse no botão do menu, na máquina, ou nos botões de reiniciar ---
                 elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
-                    if self.estado == Jogo.MENU and self.botao_iniciar.collidepoint(evento.pos):
+                    # Botão de configurações: sempre acessível em qualquer cena
+                    # jogável. O painel É o "jogo pausado" (ver
+                    # config_fase5.abrir_painel_config()) — nada do resto do laço
+                    # roda enquanto ele está aberto.
+                    if self.estado != Jogo.MENU and config_fase5.icone_rect(LARGURA).collidepoint(evento.pos):
+                        resultado_config = config_fase5.abrir_painel_config(
+                            self.tela, self.relogio, self.img_config, self.img_config_hover,
+                        )
+                        if resultado_config == "sair":
+                            rodando = False
+                    elif self.estado == Jogo.MENU and self.botao_iniciar.collidepoint(evento.pos):
                         self.iniciar_cronometro()
+                        audio_fase5.iniciar_musica_fundo()
                         self.estado = Jogo.CENA1
 
                     elif self.estado == Jogo.CENA1 and self.rect_maquina.collidepoint(evento.pos):
@@ -1228,11 +1279,68 @@ class Jogo:
 
 
 # =====================================================================
-# 8. PONTO DE ENTRADA DO PROGRAMA
+# 8. PONTO DE ENTRADA DESTA FASE PARA O MENU GERAL
+# =====================================================================
+def run(character_image=None, character_name=None, genero="m", inventario=None):
+    """
+    Ponto de entrada da Fase 4, pronto para ser chamado pelo menu geral
+    do jogo (Pygame/menu/jogo.py) -- mesmo espírito de `run` em
+    fase2/fase2.py (run_fase2), usado como modelo.
+
+    O menu geral já escolhe o personagem na sua própria tela
+    "personagens" (setas </>), antes do jogador entrar em qualquer
+    fase -- a escolha NÃO acontece aqui dentro da Fase 4. Esta função
+    só recebe o resultado dessa escolha e entrega para a classe Jogo,
+    exatamente como Game.do_action já faz hoje (chamando Jogo(...)
+    diretamente, com os mesmos três parâmetros):
+
+        modulo.Jogo(
+            character_image=CHARACTER_IMAGES.get(self.personagem_index),
+            character_name=self.get_personagem_name(self.personagem_index),
+            genero="m" if self.personagem_index == 0 else "f",
+        ).executar()
+
+    Parâmetros:
+        character_image: imagem do personagem vinda do menu geral
+            (CHARACTER_IMAGES.get(...)). Guardada em self.character_image
+            para uso futuro dentro da fase.
+        character_name: nome do personagem escolhido/renomeado no menu
+            geral. Guardado em self.character_name.
+        genero: "m" (Personagem 1) ou "f" (Personagem 2) -- é a partir
+            dele que a Fase 4 decide sozinha qual sprite, fundo de
+            intro e tela de vitória usar (ver Jogo.__init__).
+        inventario: opcional, para reaproveitar um inventário já
+            existente entre fases (mesmo uso que já existia antes).
+
+    Retorno: o mesmo que Jogo.executar() já devolve hoje -- a string
+    "vitoria" quando o jogador vence e clica no botão da tela de
+    vitória (nada quando a janela é fechada, pois o próprio laço
+    encerra o programa nesse caso).
+    """
+    jogo = Jogo(
+        inventario=inventario,
+        character_image=character_image,
+        character_name=character_name,
+        genero=genero,
+    )
+    return jogo.executar()
+
+
+def run_padrao():
+    """
+    Roda a Fase 4 isolada, fora do menu geral, com o Personagem 1 como
+    opção padrão (genero="m") -- útil para testar esta fase sozinha
+    (ex: `python fase4_teste.py`) sem precisar abrir o jogo completo
+    nem passar por nenhum menu.
+
+    Para testar a variante do Personagem 2 isoladamente, chame
+    run(genero="f") em vez desta função.
+    """
+    return run(genero="m")
+
+
+# =====================================================================
+# 9. PONTO DE ENTRADA DO PROGRAMA (rodando este arquivo sozinho)
 # =====================================================================
 if __name__ == "__main__":
-    # Ao rodar esta fase sozinha (fora do menu principal), o padrão é
-    # personagem 1. Troque para Jogo(personagem_escolhido=2) aqui se
-    # quiser testar a variante do personagem 2 isoladamente.
-    jogo = Jogo(personagem_escolhido=1)
-    jogo.executar()
+    run_padrao()

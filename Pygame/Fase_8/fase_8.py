@@ -620,7 +620,7 @@ class Jogo:
         texto = f"{minutos:02d}:{segundos:02d}"
         cor = VERMELHO if restante <= 30 else BRANCO
 
-        fundo_rect = pygame.Rect(LARGURA - 130, 15, 110, 40)
+        fundo_rect = pygame.Rect(LARGURA // 2, 15, 110, 40)
         pygame.draw.rect(self.tela, (0, 0, 0, 150), fundo_rect, border_radius=8)
         render = self.fonte_texto.render(texto, True, cor)
         self.tela.blit(render, render.get_rect(center=fundo_rect.center))
