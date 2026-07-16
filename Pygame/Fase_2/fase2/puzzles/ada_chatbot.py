@@ -112,13 +112,14 @@ PROMPT_SISTEMA_ADA = (
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
 CAMINHO_RETRATO_ADA = os.path.join(ASSETS_DIR, "ada_lovelace.png")
 
-# ada_lovelace.png é um retrato de corpo inteiro (1023x1537, bem mais alto
-# que largo) -- pra virar um ícone/avatar redondo decente, primeiro
-# recortamos só a região do rosto (medida olhando pra imagem original,
-# formato x/y/largura/altura), formando um quadrado, e só depois aplicamos
-# o recorte circular. Sem esse recorte de rosto, o círculo pequeno
-# mostraria o corpo inteiro minúsculo em vez de um retrato reconhecível.
-RECORTE_ROSTO_RECT = (250, 0, 450, 450)
+# ada_lovelace.png é um retrato de corpo inteiro, fundo preto (935x1683,
+# bem mais alto que largo) -- pra virar um ícone/avatar redondo decente,
+# primeiro recortamos só a região do rosto (medida olhando pra imagem
+# original, formato x/y/largura/altura), formando um quadrado (cabeça +
+# ombros + colo), e só depois aplicamos o recorte circular. Sem esse
+# recorte de rosto, o círculo pequeno mostraria o corpo inteiro minúsculo
+# em vez de um retrato reconhecível.
+RECORTE_ROSTO_RECT = (215, 20, 520, 520)
 
 # Só existe UM retrato/ícone (nada de um ícone pequeno + um avatar maior
 # separado) -- o mesmo círculo é usado como botão fixo na parede e como
@@ -240,13 +241,21 @@ class AdaChat:
         self.pensando = False
         self.rolagem = 0  # quantas linhas da resposta já rolamos pra baixo (0 = começo)
 
-    def tratar_clique_no_icone(self, pos_virtual):
+    def tratar_clique_no_icone(self, pos_virtual, hit_rect=None):
         """Se `pos_virtual` (já convertido pra coordenadas da tela virtual
         1000x650, igual ao resto dos cliques em fase2.py) cair em cima do
         ícone da Ada, abre a caixinha de conversa. Devolve True se abriu
         (pra quem chamar saber que esse clique já foi tratado e não deve
-        ser repassado pra outra coisa)."""
-        if not self.aberta and self.icone_rect.collidepoint(pos_virtual):
+        ser repassado pra outra coisa).
+
+        `hit_rect` deixa quem chamou usar uma área clicável DIFERENTE do
+        ícone redondo -- é o que fase2.py usa na cena do quarto pra
+        deixar a Ada de corpo inteiro (ADA_NPC_RECT) clicável em vez do
+        ícone (que nem aparece mais lá, ver AdaChat.desenhar). Sem
+        `hit_rect` (None), continua checando o ícone de sempre -- é o que
+        babbage_lovelace.py usa, sem precisar mudar nada lá."""
+        alvo = hit_rect if hit_rect is not None else self.icone_rect
+        if not self.aberta and alvo.collidepoint(pos_virtual):
             self.aberta = True
             self.texto_digitado = ""
             self.resposta = ""
@@ -320,20 +329,27 @@ class AdaChat:
             self.resposta = "Ada não conseguiu responder, tente novamente."
         self.pensando = False
 
-    def desenhar(self, tela, mouse_pos):
-        """Desenha o ícone (sempre visível) e, se a conversa estiver
+    def desenhar(self, tela, mouse_pos, mostrar_icone=True):
+        """Desenha o ícone (se `mostrar_icone`) e, se a conversa estiver
         aberta, a faixa de diálogo estilo RPG clássico (caixa de texto
         grande à esquerda + retrato emoldurado à direita) na parte
         inferior da tela. `mouse_pos` já deve vir convertido pra
         coordenadas da tela virtual, só para destacar o ícone quando o
-        mouse passa por cima (efeito de hover)."""
+        mouse passa por cima (efeito de hover).
+
+        `mostrar_icone=False` esconde só o ícone redondo da parede -- é o
+        que fase2.py usa na cena do quarto, onde a Ada de corpo inteiro
+        (clicável, ver tratar_clique_no_icone) já cumpre esse papel, e o
+        ícone ficaria redundante. babbage_lovelace.py (o puzzle) chama
+        sem esse argumento, então continua com o ícone de sempre."""
         common.init_fonts()
         common._load_frames()
 
-        hovered = self.icone_rect.collidepoint(mouse_pos) and not self.aberta
-        if hovered:
-            pygame.draw.circle(tela, common.GOLD, self.icone_rect.center, TAMANHO_ICONE // 2 + 4, width=3)
-        tela.blit(self.icone, self.icone_rect)
+        if mostrar_icone:
+            hovered = self.icone_rect.collidepoint(mouse_pos) and not self.aberta
+            if hovered:
+                pygame.draw.circle(tela, common.GOLD, self.icone_rect.center, TAMANHO_ICONE // 2 + 4, width=3)
+            tela.blit(self.icone, self.icone_rect)
 
         if not self.aberta:
             return

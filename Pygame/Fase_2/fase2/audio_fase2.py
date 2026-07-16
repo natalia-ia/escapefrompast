@@ -37,8 +37,9 @@ SOM_CONSERTANDO_MAQUINA = _caminho_som("consetando_maq.mp3")
 SOM_ERRO = _caminho_som("error.mp3")
 SOM_MAQUINA_LIGANDO = _caminho_som("maq_lig.mp3")
 
-VOLUME_MUSICA_FUNDO = 0.45  # ~45% -- mais baixo que os efeitos, música de fundo não deve competir/cansar
+VOLUME_MUSICA_FUNDO = 0.06  # ~6% -- mesmo valor usado na Fase_9, música de fundo não deve competir/cansar
 VOLUME_EFEITOS = 0.7        # um pouco mais alto que a música, pra os efeitos serem bem ouvidos
+VOLUME_EFEITO_ENGRENAGEM = 0.25  # ~25% -- som de coletar engrenagem é mais discreto que os outros efeitos
 
 # Canais dedicados (pygame.mixer.Channel) -- número do canal só, ajuste
 # aqui se precisar. CANAL_CLIQUE é reservado só pros efeitos de reação a

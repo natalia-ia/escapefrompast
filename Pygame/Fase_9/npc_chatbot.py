@@ -303,7 +303,7 @@ class NPCChatbot:
     # -----------------------------------------------------------------
     # DESENHO: DICA "Pressione E" (quando perto, com diálogo fechado)
     # -----------------------------------------------------------------
-    def desenhar_dica_interacao(self, tela, fonte_pequena):
+    def desenhar_dica_interacao(self, tela, fonte_pequena, pos_override=None):
         # Quando o limite de perguntas acabou, a dica de interação avisa
         # disso em vez de convidar a apertar E (que nem abre mais o
         # diálogo -- ver o guard em fase9.py/puzzle_terminal.py).
@@ -312,7 +312,12 @@ class NPCChatbot:
         else:
             texto, cor = f"Pressione E para falar com {self.nome_npc}", COR_AMBAR
         render = fonte_pequena.render(texto, True, cor)
-        fundo_rect = render.get_rect(midbottom=(self.rect_npc.centerx, self.rect_npc.top - 10))
+        # pos_override (midbottom): usado só por desktop_final.run(), onde
+        # ancorar a dica no rect_npc de sempre sobreporia os ícones do
+        # desktop (LIXEIRA/DISCO) -- os demais chamadores (quarto, tela
+        # WIMP do puzzle) continuam usando o padrão ancorado no NPC.
+        ancora = pos_override if pos_override is not None else (self.rect_npc.centerx, self.rect_npc.top - 10)
+        fundo_rect = render.get_rect(midbottom=ancora)
         fundo_rect.inflate_ip(20, 10)
         # Se o NPC estiver perto de uma borda da tela (ex: canto inferior
         # direito), a dica centralizada nele pode ultrapassar a tela --

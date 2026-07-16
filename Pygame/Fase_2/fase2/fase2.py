@@ -172,6 +172,17 @@ FADE_DURATION_SECONDS = 0.35
 # abaixo.
 MENSAGEM_VITORIA_SEGUNDOS = 2.0
 
+# Cena de finalização: depois que o jogador clica na máquina do tempo (já
+# com o código/puzzle resolvido), mostrada antes de devolver o controle pro
+# menu -- ver _cena_finalizacao() mais abaixo. Cada _fade_transition() já
+# escurece E clareia (2 metades de FINALIZACAO_FADE_SEGUNDOS cada), e a
+# cena chama _fade_transition duas vezes (entrada e saída) -- o tempo
+# total é então 4x FINALIZACAO_FADE_SEGUNDOS + FINALIZACAO_MENSAGEM_
+# SEGUNDOS (~2.5s), dentro da janela de 2-3s pedida.
+MENSAGEM_FINALIZACAO = "Viajando no tempo..."
+FINALIZACAO_FADE_SEGUNDOS = 0.25
+FINALIZACAO_MENSAGEM_SEGUNDOS = 1.5
+
 # ---------------------------------------------------------------------------
 # Configurações do avatar do jogador
 # ---------------------------------------------------------------------------
@@ -193,6 +204,25 @@ AVATAR_FIT = ("h", 300)  # personagem em tamanho proporcional a bancada/objetos 
 #muito grande ou muito pequeno
 
 # ---------------------------------------------------------------------------
+# Ada Lovelace de corpo inteiro, parada no canto direito da oficina (NPC
+# decorativa E clicável -- clicar nela, ver ADA_NPC_RECT mais abaixo,
+# abre a mesma conversa de sempre; o ícone/retrato redondo na parede
+# continua existindo, só que agora só aparece dentro do puzzle, ver
+# ada_chat.desenhar(..., mostrar_icone=False) na cena do quarto).
+# ---------------------------------------------------------------------------
+# um pouco mais alta que o personagem (AVATAR_FIT=300), como pedido --
+# ainda claramente "proporcional", só não idêntica.
+ADA_NPC_FIT = ("h", 320)
+# "quase encostando" na borda direita da tela virtual (1000px de
+# largura): com ADA_NPC_FIT=320 o sprite fica com ~153px de largura, e
+# x=920 deixa a borda direita dela por volta de x=996 -- poucos pixels de
+# margem, mas sem cortar a imagem. y=595 é a MESMA linha de pé usada pelo
+# personagem (ver posicao_inicial=(340, 595) do Jogador, mais abaixo) --
+# só o pé (midbottom) importa aqui, igual TIME_MACHINE_POS, pra ela ficar
+# de pé encostada no chão, não flutuando, e alinhada com o personagem.
+ADA_NPC_POS = (920, 595)
+
+# ---------------------------------------------------------------------------
 # Variáveis globais dos assets (imagens) --> começam vazias (none)
 # ---------------------------------------------------------------------------
 # As imagens só podem passar por .convert()/.convert_alpha() depois que a
@@ -209,6 +239,8 @@ OPEN_SPRITES = {}
 AVATAR_FRAMES = {}  # preenchido em _load_assets: "parado_m", "andando1_m", "andando2_m", "parado_f", ...
 TIME_MACHINE_SPRITE = None
 TIME_MACHINE_RECT = None
+ADA_NPC_SPRITE = None
+ADA_NPC_RECT = None
 
 
 def _scale_fit(img, fit, rot=0):
@@ -273,7 +305,7 @@ def _load_assets():
     isso sozinho no import), o .convert()/.convert_alpha() são otimizações
     de imagem que exigem uma tela já criada pra funcionar.
     '''
-    global BACKGROUND, INTRO_BACKGROUND, MACHINE_ROOM_BACKGROUND, GEAR_SMALL, GEAR_SMALL_HOVER, GEAR_LARGE, TIME_MACHINE_SPRITE, TIME_MACHINE_RECT
+    global BACKGROUND, INTRO_BACKGROUND, MACHINE_ROOM_BACKGROUND, GEAR_SMALL, GEAR_SMALL_HOVER, GEAR_LARGE, TIME_MACHINE_SPRITE, TIME_MACHINE_RECT, ADA_NPC_SPRITE, ADA_NPC_RECT
     if BACKGROUND is not None:
         return
 
@@ -323,6 +355,13 @@ def _load_assets():
     machine_raw = pygame.image.load(os.path.join(ASSETS_DIR, "maquina_do_tempo_v4.png")).convert_alpha()
     TIME_MACHINE_SPRITE = _scale_fit(machine_raw, TIME_MACHINE_FIT)
     TIME_MACHINE_RECT = TIME_MACHINE_SPRITE.get_rect(midbottom=TIME_MACHINE_POS)
+
+    # Ada de corpo inteiro (ada_lovelace_corpo.png -- já sem os pés e com o
+    # fundo removido/transparente, ver o comentário de ADA_NPC_FIT lá em
+    # cima), parada de decoração num canto da oficina.
+    ada_npc_raw = pygame.image.load(os.path.join(ASSETS_DIR, "ada_lovelace_corpo.png")).convert_alpha()
+    ADA_NPC_SPRITE = _scale_fit(ada_npc_raw, ADA_NPC_FIT)
+    ADA_NPC_RECT = ADA_NPC_SPRITE.get_rect(midbottom=ADA_NPC_POS)
 
     # avatar do jogador (todos os frames, dos dois gêneros)
     # AVATAR_ASSETS tem 6 entradas (3 frames x 2 gêneros); esse loop carrega
@@ -721,7 +760,52 @@ def _fade_transition(screen, clock, before_surface, after_surface, duration=FADE
             pygame.display.flip()
 
 
-def _mostrar_mensagem_vitoria(screen, clock, cena_base, mensagem, duracao):
+def _cena_finalizacao(screen, clock):
+    """Cena curta (2-3s) mostrada depois que o jogador clica na máquina do
+    tempo (já com o puzzle resolvido), antes de devolver o controle pro
+    menu: para toda a música/efeitos da fase, escurece a partir do último
+    quadro jogável até um fundo marrom bem escuro com "Viajando no
+    tempo..." em dourado (mesmo estilo vitoriano do resto da fase), segura
+    a mensagem por um instante e escurece de novo antes de voltar -- assim
+    a troca de cena não corta a música/imagem de golpe nem pisca direto
+    pro mapa de fases."""
+    audio_fase2.parar_tudo()
+
+    largura, altura = screen.get_size()
+    ultimo_quadro = screen.copy()
+
+    mensagem_surface = pygame.Surface((largura, altura))
+    mensagem_surface.fill((26, 18, 10))
+    moldura_rect = pygame.Rect(0, 0, largura - 160, altura - 220)
+    moldura_rect.center = (largura // 2, altura // 2)
+    pygame.draw.rect(mensagem_surface, GOLD, moldura_rect, width=3, border_radius=14)
+
+    fonte_mensagem = pygame.font.SysFont("consolas", 34, bold=True)
+    texto_surf = fonte_mensagem.render(MENSAGEM_FINALIZACAO, True, GOLD)
+    mensagem_surface.blit(texto_surf, texto_surf.get_rect(center=moldura_rect.center))
+
+    tela_preta = pygame.Surface((largura, altura))
+
+    _fade_transition(screen, clock, ultimo_quadro, mensagem_surface, duration=FINALIZACAO_FADE_SEGUNDOS)
+
+    passos = max(1, int(FINALIZACAO_MENSAGEM_SEGUNDOS * 60))
+    for _ in range(passos):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                raise SystemExit
+        clock.tick(60)
+
+        screen.blit(mensagem_surface, (0, 0))
+        real_screen = pygame.display.get_surface()
+        scaled = pygame.transform.smoothscale(screen, real_screen.get_size())
+        real_screen.blit(scaled, (0, 0))
+        pygame.display.flip()
+
+    _fade_transition(screen, clock, mensagem_surface, tela_preta, duration=FINALIZACAO_FADE_SEGUNDOS)
+
+
+def _mostrar_mensagem_vitoria(screen, clock, cena_base, mensagem, duracao, estrelas=None, tempo_formatado=None):
     """Mostra `mensagem` num banner centralizado, sobreposto a `cena_base`
     (uma Surface já pronta, com o fundo/máquina/personagem já desenhados),
     por `duracao` segundos -- usado logo que a sala da máquina do tempo
@@ -731,11 +815,19 @@ def _mostrar_mensagem_vitoria(screen, clock, cena_base, mensagem, duracao):
     primeiro frame -- só o banner some depois de `duracao`. Mesmo espírito
     de _fade_transition: não é uma tela interativa, só processa QUIT pra
     não travar a janela achando que o app travou.
+
+    `estrelas` (1-3) continua aceito (mesma chamada em run(), com o
+    resultado de babbage_lovelace.EstadoPuzzle) mas não é mais desenhado
+    aqui -- as estrelas conquistadas aparecem só no mapa de fases (ver
+    Pygame/menu/jogo.py), não no final da fase. `tempo_formatado`
+    ("MM:SS"), se informado, ainda aparece no banner.
     """
-    banner_largura, banner_altura = 560, 100
+    banner_largura = 560
+    banner_altura = 100 if tempo_formatado is None else 140
     banner_rect = pygame.Rect(0, 0, banner_largura, banner_altura)
     banner_rect.center = (screen.get_width() // 2, screen.get_height() // 2)
     banner_font = pygame.font.SysFont("consolas", 28, bold=True)
+    tempo_font = pygame.font.SysFont("consolas", 20, bold=True)
 
     steps = max(1, int(duracao * 60))
     for _ in range(steps):
@@ -748,8 +840,14 @@ def _mostrar_mensagem_vitoria(screen, clock, cena_base, mensagem, duracao):
         screen.blit(cena_base, (0, 0))
         pygame.draw.rect(screen, (43, 30, 20), banner_rect, border_radius=12)
         pygame.draw.rect(screen, GOLD, banner_rect, width=3, border_radius=12)
+
+        texto_y = banner_rect.top + 30 if tempo_formatado is not None else banner_rect.centery
         texto_surf = banner_font.render(mensagem, True, GOLD)
-        screen.blit(texto_surf, texto_surf.get_rect(center=banner_rect.center))
+        screen.blit(texto_surf, texto_surf.get_rect(center=(banner_rect.centerx, texto_y)))
+
+        if tempo_formatado is not None:
+            tempo_surf = tempo_font.render(f"Tempo: {tempo_formatado}", True, CREAM)
+            screen.blit(tempo_surf, tempo_surf.get_rect(center=(banner_rect.centerx, banner_rect.bottom - 30)))
 
         real_screen = pygame.display.get_surface()
         scaled = pygame.transform.smoothscale(screen, real_screen.get_size())
@@ -781,7 +879,9 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
     # se algum som não carregar (ver audio_fase2.carregar_som).
     audio_fase2.iniciar_musica_fundo()
     som_caixa = audio_fase2.carregar_som(audio_fase2.SOM_CAIXA)
-    som_coletar_engrenagem = audio_fase2.carregar_som(audio_fase2.SOM_COLETAR_ENGRENAGEM)
+    som_coletar_engrenagem = audio_fase2.carregar_som(
+        audio_fase2.SOM_COLETAR_ENGRENAGEM, volume=audio_fase2.VOLUME_EFEITO_ENGRENAGEM
+    )
 
     # Uma fonte pra cada "papel" de texto na tela (título, legendas, dicas, nome do personagem, contador) -- criadas uma vez aqui no
     # início, não a cada frame, porque criar fonte é caro e lento, então é melhor criar uma vez só e reaproveitar.
@@ -921,12 +1021,16 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
                 # clique já abriu um baú).
                 clicked_something = False
 
-                # O retrato da Ada só existe na oficina, checa antes dos
-                # outros objetos (a área do ícone nunca se sobrepõe com
+                # A Ada só existe na oficina, checa antes dos outros
+                # objetos (a área dela nunca se sobrepõe com
                 # baú/pote/caixote/papel, então a ordem não importa na
                 # prática, mas fica mais claro ler o clique "mais geral"
-                # primeiro).
-                if not in_machine_room and ada_chat.tratar_clique_no_icone(click_pos):
+                # primeiro). hit_rect=ADA_NPC_RECT: na cena do quarto quem
+                # é clicável é o corpo inteiro dela, não o ícone redondo
+                # (que nem é desenhado aqui, ver o desenhar() mais abaixo)
+                # -- o ícone continua do jeito de sempre só dentro do
+                # puzzle (babbage_lovelace.py).
+                if not in_machine_room and ada_chat.tratar_clique_no_icone(click_pos, hit_rect=ADA_NPC_RECT):
                     clicked_something = True
                 elif in_machine_room:
                     # Na sala da máquina, só existe uma coisa clicável: a
@@ -1033,6 +1137,8 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
                                 _mostrar_mensagem_vitoria(
                                     screen, clock, after_surface,
                                     "Você concluiu, parabéns!", MENSAGEM_VITORIA_SEGUNDOS,
+                                    estrelas=estado_puzzle.estrelas_conquistadas,
+                                    tempo_formatado=estado_puzzle.tempo_formatado,
                                 )
 
                                 # Depois do fade, o jogo "está" na sala da
@@ -1141,6 +1247,17 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
             counter_surf = counter_font.render(counter_text, True, OLIVE if paper_ready else CREAM)
             screen.blit(counter_surf, (width - counter_surf.get_width() - 30, margin + 14))
 
+            # Ada de corpo inteiro, parada de decoração num canto da
+            # oficina -- só aqui, nunca na sala da máquina nem durante o
+            # puzzle de Babbage/Lovelace (que é uma tela própria, ver
+            # puzzles/babbage_lovelace.py). Sombra suave sob os pés, mesmo
+            # espírito da sombra dos objetos em CONTAINERS, pra ela não
+            # parecer flutuando sobre o chão.
+            ada_shadow = pygame.Surface((140, 26), pygame.SRCALPHA)
+            pygame.draw.ellipse(ada_shadow, (0, 0, 0, SHADOW_ALPHA), ada_shadow.get_rect())
+            screen.blit(ada_shadow, ada_shadow.get_rect(center=(ADA_NPC_POS[0], ADA_NPC_RECT.bottom - 6)))
+            screen.blit(ADA_NPC_SPRITE, ADA_NPC_RECT)
+
         # O personagem é sempre desenhado por cima do cenário/objetos, tanto na oficina quanto na sala q fica a máquina.
 
         _draw_player(screen, jogador.pos, jogador.imagem, character_name, name_font)
@@ -1148,7 +1265,11 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
         # Retrato/chat da Ada, só na oficina, desenhado por cima de tudo (cenário, objetos e personagem), igual a um elemento de HUD.
 
         if not in_machine_room:
-            ada_chat.desenhar(screen, mouse_pos)
+            # mostrar_icone=False: na cena do quarto o ícone redondo some
+            # (quem é clicável e visível é a Ada de corpo inteiro, ver
+            # ADA_NPC_SPRITE/ADA_NPC_RECT mais acima); a caixinha de
+            # diálogo em si (quando aberta) continua igual.
+            ada_chat.desenhar(screen, mouse_pos, mostrar_icone=False)
 
         #contagem regressiva dos timers visuais (efeitos temporários): Os dois timers abaixo são contados em segundos (usando `dt`) e
         # controlam efeitos que devem sumir sozinhos depois de um tempo: o flash dourado ao coletar a engrenagem do papel, e a mensagem de
@@ -1187,6 +1308,13 @@ def run(screen, clock, character_image=None, character_name="Jogador", genero="m
         pygame.display.flip()
 
     # completed só vira True lá em cima, quando o jogador clica na máquina do tempo depois de chegar perto dela e se saiu antes com ESC continua False.
+
+    if completed:
+        # Cena de finalização (2-3s, "Viajando no tempo...") -- só depois
+        # de clicar na máquina, antes de devolver o controle pro menu (ver
+        # _cena_finalizacao acima). Se saiu por ESC, não faz sentido
+        # mostrar essa cena, pula direto pro parar_tudo()/return de baixo.
+        _cena_finalizacao(screen, clock)
 
     # Sai da fase por qualquer caminho (vitória ou ESC) -- para a
     # música de fundo e qualquer efeito ainda tocando, pra nada da
