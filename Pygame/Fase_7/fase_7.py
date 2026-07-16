@@ -100,12 +100,12 @@ def caminho_asset(nome_relativo):
 # ("tempo" é quanto o jogador LEVOU pra resolver, não quanto sobrou no
 # timer). Fica na raiz de Pygame/, fora de qualquer fase específica.
 #
-# AJUSTE a chave abaixo para o número real desta fase no seu jogo (ex:
-# "fase_6") -- "fase_valvulas" é só um nome provisório e descritivo.
+# Conectada como Fase 7 no mapa (Pygame/menu/jogo.py) -- chave alinhada
+# com o padrão "fase_N" usado por todas as outras fases já conectadas.
 # ---------------------------------------------------------------------------
 _PYGAME_DIR = os.path.dirname(PASTA_DO_SCRIPT)
 PROGRESSO_PATH = os.path.join(_PYGAME_DIR, "progresso.json")
-PROGRESSO_CHAVE_FASE = "fase_valvulas"
+PROGRESSO_CHAVE_FASE = "fase_7"
 
 
 def _carregar_progresso():
@@ -817,9 +817,11 @@ class Jogo:
     # -----------------------------------------------------------------
     def executar(self):
         rodando = True
+        saiu_por_fechar_janela = False
         while rodando:
             for evento in pygame.event.get():
                 if evento.type == pygame.QUIT:
+                    saiu_por_fechar_janela = True
                     rodando = False
 
                 elif evento.type == pygame.KEYDOWN:
@@ -896,8 +898,16 @@ class Jogo:
             pygame.display.flip()
             self.relogio.tick(FPS)
 
-        pygame.quit()
-        sys.exit()
+        # Fechar a JANELA (evento QUIT) encerra o programa inteiro, igual
+        # já acontece nas outras fases (Fase_4/Fase_5/Fase_1/Fase_3/Fase_6/
+        # Fase_10). Sair pela tela de configurações ("Sair") devolve
+        # controle ao menu geral (None) em vez de matar o processo -- sem
+        # isso, o botão "Sair" do painel de configurações encerraria o
+        # jogo inteiro em vez de voltar ao mapa de fases.
+        if saiu_por_fechar_janela:
+            pygame.quit()
+            sys.exit()
+        return None
 
 
 # =====================================================================

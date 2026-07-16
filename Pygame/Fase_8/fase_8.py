@@ -13,6 +13,8 @@ import random
 import pygame
 from inventario import Inventario, ItemColecionavel
 from npc_chatbot import NPCChatbot
+import audio_fase5
+import config_fase5
 # =====================================================================
 # 1. CONFIGURAÇÕES GERAIS DA JANELA E DO JOGO
 # =====================================================================
@@ -48,7 +50,11 @@ def caminho_asset(nome_relativo):
 
 ASSETS = {
     # Fundo da tela de MENU inicial. Sugestão: 960x600 px.
-    "fundo_intro": caminho_asset("assets/fundo_intro_fase8.png"),
+    # Duas variantes da tela de introdução: dependem de qual personagem
+    # foi escolhido na tela "personagens" do menu geral (fundo_intro1 =
+    # Personagem 1, fundo_intro2 = Personagem 2), mesmo padrão da Fase 5.
+    "fundo_intro1": caminho_asset("assets/fundo_intro_fase8.png"),
+    "fundo_intro2": caminho_asset("assets/fundo_intro_fase8_2.png"),
 
     # Avatar do jogador (mesmos personagens das outras fases).
     "avatar_parado": caminho_asset("assets/personagem_parado.png"),
@@ -59,6 +65,10 @@ ASSETS = {
     "avatar2_parado": caminho_asset("assets/personagem2_parado.png"),
     "avatar2_andando1": caminho_asset("assets/personagem2_andando1.png"),
     "avatar2_andando2": caminho_asset("assets/personagem2_andando2.png"),
+
+    # Ícone quadrado do botão de configurações (canto superior direito),
+    # desenhado por config_fase5.desenhar_icone().
+    "icone_configuracao": caminho_asset("assets/icone_configuracao.png"),
 
     # Sprite do NPC: engenheiro/técnico da IBM.
     "npc": caminho_asset("assets/engenheiro_ibm.png"),
@@ -110,7 +120,10 @@ ASSETS = {
     "fundo_cena_dica2": caminho_asset("assets/dica2_compatibilidade.png"),
 
     # Telas finais.
-    "tela_vitoria": caminho_asset("assets/vitoria.png"),
+    # Duas variantes da tela de vitória, mesma regra do fundo_intro1/2
+    # acima (depende do personagem escolhido no menu geral).
+    "tela_vitoria1": caminho_asset("assets/vitoria1.png"),
+    "tela_vitoria2": caminho_asset("assets/vitoria2.png"),
     "tela_derrota": caminho_asset("assets/derrota.png"),
 
     # (Opcional) Fonte .ttf de época. Deixe None para usar a padrão.
@@ -146,12 +159,30 @@ def carregar_fonte(caminho, tamanho):
         return pygame.font.Font(caminho, tamanho)
     return pygame.font.SysFont("georgia", tamanho)
 
+
+def _parar_audio_seguro():
+    """Rede de segurança chamada ao sair da Fase 8 por qualquer caminho
+    que não passe pelo painel de configurações (vitória, fechar a
+    janela) -- o painel já para a música sozinho em
+    config_fase5.abrir_painel_config() quando o jogador escolhe "sair".
+    Para música E efeitos em qualquer canal, sem travar se o mixer não
+    estiver disponível (mesmo espírito de audio_fase5.parar_tudo() e
+    do helper equivalente na Fase 5)."""
+    try:
+        pygame.mixer.music.stop()
+    except pygame.error:
+        pass
+    try:
+        pygame.mixer.stop()
+    except pygame.error:
+        pass
+
 # =====================================================================
 # 4. LÓGICA DOS DESAFIOS
 # =====================================================================
 # --- Desafio da Cena 2: senha do cofre (4 dígitos) ---
 # 1964 = ano em que a IBM lançou o System/360. 
-SENHA_COFRE = "1964"
+SENHA_COFRE = "1965"
 
 # --- Desafio da Cena da Impressora: reordenar letras e números ---
 # CODIGO_IMPRESSORA_CORRETO é a resposta certa. CODIGO_EXIBIDO é a
@@ -379,11 +410,39 @@ class Jogo:
     VITORIA = "vitoria"
     DERROTA = "derrota"
 
-    def __init__(self, inventario=None):
+    def __init__(self, inventario=None, character_image=None, character_name="Jogador", genero="m"):
+        # character_image/character_name/genero seguem o mesmo formato
+        # que a Fase 5 já recebe do menu geral (ver Pygame/menu/jogo.py)
+        # -- assim o personagem escolhido lá continua o mesmo aqui, em
+        # vez desta fase usar sempre o primeiro conjunto de sprites
+        # fixo. character_image só é guardado (não usado pra desenhar
+        # aqui -- não há retrato grande nesta fase); quem decide o
+        # sprite do avatar é `genero`.
         pygame.init()
         self.tela = pygame.display.set_mode((LARGURA, ALTURA))
         pygame.display.set_caption("Fase 8 - IBM System/360 (1960-1975)")
         self.relogio = pygame.time.Clock()
+        self.character_name = character_name or "Jogador"
+
+        # --- Personagem escolhido na tela "personagens" do menu geral ---
+        # "m" -> Personagem 1, "f" -> Personagem 2 (mesma convenção
+        # usada pela Fase 5). Qualquer valor inesperado cai em "m", pra
+        # esta fase nunca quebrar por causa disso. É a partir de
+        # personagem_escolhido que decidimos o fundo de intro e a tela
+        # de vitória (o sprite do avatar já usa `genero` direto, ver
+        # mais abaixo, perto de "Escolhe o conjunto de sprites").
+        self.genero = genero if genero in ("m", "f") else "m"
+        self.personagem_escolhido = 1 if self.genero == "m" else 2
+        self.character_image = character_image
+
+        # Ícone do botão de configurações (parado / hover, cresce um
+        # pouco quando o mouse passa por cima, mesmo efeito da Fase 5) ---
+        self.img_config = carregar_imagem(
+            ASSETS["icone_configuracao"], (36, 36), CINZA_CLARO, "CONFIG",
+        )
+        self.img_config_hover = carregar_imagem(
+            ASSETS["icone_configuracao"], (42, 42), CINZA_CLARO, "CONFIG",
+        )
 
         # --- Inventário de colecionáveis (compartilhável entre fases) ---
         self.inventario = inventario if inventario is not None else Inventario()
@@ -394,28 +453,36 @@ class Jogo:
         self.fonte_pequena = carregar_fonte(ASSETS["fonte"], 20)
 
         # --- Imagens ---
-        self.img_fundo_intro = carregar_imagem(
-            ASSETS["fundo_intro"], (LARGURA, ALTURA), PRETO, "FUNDO DA INTRO",
+        self.img_fundo_intro1 = carregar_imagem(
+            ASSETS["fundo_intro1"], (LARGURA, ALTURA), PRETO, "FUNDO DA INTRO\n(personagem 1)",
+        )
+        self.img_fundo_intro2 = carregar_imagem(
+            ASSETS["fundo_intro2"], (LARGURA, ALTURA), PRETO, "FUNDO DA INTRO\n(personagem 2)",
+        )
+        # Escolhe a variante certa conforme o personagem escolhido no
+        # menu geral (self.personagem_escolhido == 1 ou 2).
+        self.img_fundo_intro = (
+            self.img_fundo_intro1 if self.personagem_escolhido == 1 else self.img_fundo_intro2
         )
         self.img_fundo_cena1 = carregar_imagem(
             ASSETS["fundo_cena1"], (LARGURA, ALTURA), AZUL_IBM,
             "FUNDO DA CENA 1\n(escritório da IBM)",
         )
         self.img_impressora = carregar_imagem(
-            ASSETS["impressora"], (110, 120), CINZA_METAL, "IMPRESSORA",
+            ASSETS["impressora"], (220, 250), CINZA_METAL, "IMPRESSORA",
         )
         self.img_fundo_cena3 = carregar_imagem(
             ASSETS["fundo_cena3"], (LARGURA, ALTURA), (60, 65, 75),
             "FUNDO DA CENA 3\n(segunda sala)",
         )
         self.img_cofre = carregar_imagem(
-            ASSETS["cofre"], (120, 140), (80, 80, 85), "COFRE",
+            ASSETS["cofre"], (150, 260), (80, 80, 85), "COFRE",
         )
         self.img_computador = carregar_imagem(
-            ASSETS["computador"], (220, 260), CINZA_METAL, "COMPUTADOR\nSYSTEM/360",
+            ASSETS["computador"], (160, 140), CINZA_METAL, "COMPUTADOR\nSYSTEM/360",
         )
         self.img_capsula_tempo = carregar_imagem(
-            ASSETS["capsula_tempo"], (140, 160), (110, 100, 70), "CÁPSULA\nDO TEMPO",
+            ASSETS["capsula_tempo"], (235, 426), (110, 100, 70), "CÁPSULA\nDO TEMPO",
         )
         self.img_modulo = carregar_imagem(
             ASSETS["modulo_compatibilidade"], (90, 60), AMARELO_SEPIA, "MÓDULO",
@@ -437,7 +504,7 @@ class Jogo:
             "FUNDO DA CENA DE\nDICA 2 (compatibilidade)",
         )
         self.img_seta_direita = carregar_imagem(
-            ASSETS["seta_direita"], (60, 60), (0, 0, 0), "",
+            ASSETS["seta_direita"], (70, 65), (0, 0, 0), "",
         ) if os.path.isfile(ASSETS["seta_direita"]) else None
 
         self.img_avatar_parado = carregar_imagem(
@@ -449,18 +516,46 @@ class Jogo:
         self.img_avatar_andando2 = carregar_imagem(
             ASSETS["avatar_andando2"], (138, 288), CINZA, "ANDANDO 2",
         )
+        self.img_avatar2_parado = carregar_imagem(
+            ASSETS["avatar2_parado"], (138, 288), (120, 70, 70), "PARADO 2",
+        )
+        self.img_avatar2_andando1 = carregar_imagem(
+            ASSETS["avatar2_andando1"], (138, 288), (120, 70, 70), "ANDANDO 2.1",
+        )
+        self.img_avatar2_andando2 = carregar_imagem(
+            ASSETS["avatar2_andando2"], (138, 288), (120, 70, 70), "ANDANDO 2.2",
+        )
+
+        # Escolhe o conjunto de sprites de acordo com o `genero` recebido
+        # do menu -- "f" usa o segundo personagem, qualquer outro valor
+        # (o padrão "m") usa o primeiro, mesma regra da Fase 5.
+        if genero == "f":
+            _frame_parado_jogador = self.img_avatar2_parado
+            _frames_andando_jogador = [self.img_avatar2_andando1, self.img_avatar2_andando2]
+        else:
+            _frame_parado_jogador = self.img_avatar_parado
+            _frames_andando_jogador = [self.img_avatar_andando1, self.img_avatar_andando2]
+
         self.jogador = Jogador(
-            frame_parado=self.img_avatar_parado,
-            frames_andando=[self.img_avatar_andando1, self.img_avatar_andando2],
+            frame_parado=_frame_parado_jogador,
+            frames_andando=_frames_andando_jogador,
             posicao_inicial=(80, ALTURA - 320),
         )
 
         self.img_npc = carregar_imagem(
-            ASSETS["npc"], (155, 305), (60, 90, 130), "ENGENHEIRO\nIBM",
+            ASSETS["npc"], (155, 280), (60, 90, 130), "ENGENHEIRO\nIBM",
         )
 
-        self.img_vitoria = carregar_imagem(
-            ASSETS["tela_vitoria"], (LARGURA, ALTURA), VERDE, "TELA DE VITÓRIA",
+        self.img_vitoria1 = carregar_imagem(
+            ASSETS["tela_vitoria1"], (LARGURA, ALTURA), VERDE, "TELA DE VITÓRIA\n(personagem 1)",
+        )
+        self.img_vitoria2 = carregar_imagem(
+            ASSETS["tela_vitoria2"], (LARGURA, ALTURA), VERDE, "TELA DE VITÓRIA\n(personagem 2)",
+        )
+        # Escolhe a variante certa conforme o personagem escolhido no
+        # menu geral (mesma regra usada no fundo_intro acima).
+        self.img_vitoria = (
+            self.img_vitoria1 if self.personagem_escolhido == 1 else self.img_vitoria2
         )
         self.img_derrota = carregar_imagem(
             ASSETS["tela_derrota"], (LARGURA, ALTURA), VERMELHO, "TELA DE DERROTA",
@@ -481,14 +576,14 @@ class Jogo:
 
         # --- Impressora (Cena 1) - só clicável depois do cartão achado ---
         # AJUSTE a posição para onde a impressora aparece no seu fundo.
-        self.rect_impressora = self.img_impressora.get_rect(midbottom=(320, ALTURA - 121))
+        self.rect_impressora = self.img_impressora.get_rect(midbottom=(600, ALTURA - 70))
         self.ponto_interacao_impressora = (
-            self.rect_impressora.left - 30,
+            self.rect_impressora.left - 1,
             self.jogador.rect.centery,
         )
 
         # --- NPC (engenheiro IBM), parado na Cena 1 ---
-        self.rect_npc = self.img_npc.get_rect(midleft=(700, ALTURA - 220))
+        self.rect_npc = self.img_npc.get_rect(midleft=(350, ALTURA - 220))
 
         # --- Chatbot do NPC integrado à IA local (Ollama) ---
         self.npc_chat = NPCChatbot(
@@ -512,7 +607,7 @@ class Jogo:
 
         # --- Seta de navegação (Cena 1 -> Cena 3) ---
         self.rect_seta_avancar = pygame.Rect(0, 0, 56, 56)
-        self.rect_seta_avancar.midright = (LARGURA - 15, ALTURA // 2)
+        self.rect_seta_avancar.midright = (LARGURA - 85, ALTURA // 2 + 50)
         self.ponto_interacao_seta = (
             self.rect_seta_avancar.left - 40,
             self.jogador.rect.centery,
@@ -521,15 +616,15 @@ class Jogo:
         self.proximo_estado_ao_chegar = None
 
         # --- Cofre (Cena 3) -> abre a Cena 2 ---
-        self.rect_cofre = self.img_cofre.get_rect(midright=(LARGURA - 480, ALTURA - 260))
+        self.rect_cofre = self.img_cofre.get_rect(midright=(180, ALTURA - 315))
         self.ponto_interacao_cofre = (
-            self.rect_cofre.left - 30,
+            max(self.rect_cofre.left - 30, 90),
             self.rect_cofre.bottom - 10,
         )
         self.papel_encontrado = False   # cartão perfurado já coletado?
 
         # --- Computador (Cena 3) -> libera o módulo de compatibilidade ---
-        self.rect_computador = self.img_computador.get_rect(midright=(LARGURA - 160, ALTURA - 230))
+        self.rect_computador = self.img_computador.get_rect(midright=(LARGURA - 330, ALTURA - 275))
         self.ponto_interacao_computador = (
             self.rect_computador.left - 30,
             self.rect_computador.bottom - 10,
@@ -539,7 +634,7 @@ class Jogo:
         self.modulo_entregue = False     # módulo já foi solto na cápsula?
 
         # --- Cápsula do tempo (Cena 3) -> alvo do arrasto do módulo ---
-        self.rect_capsula = self.img_capsula_tempo.get_rect(bottomleft=(40, ALTURA - 40))
+        self.rect_capsula = self.img_capsula_tempo.get_rect(bottomleft=(730, ALTURA - 55))
 
         # --- Módulo de compatibilidade (arrastável, some do computador) ---
         self.rect_modulo_posicao_inicial = self.img_modulo.get_rect(
@@ -679,6 +774,7 @@ class Jogo:
         self.desenhar_seta_avancar(self.rect_seta_avancar)
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         if self.mensagem_erro:
             render_erro = self.fonte_pequena.render(self.mensagem_erro, True, VERMELHO)
@@ -746,6 +842,7 @@ class Jogo:
         self.jogador.desenhar(self.tela)
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         cor_botao = VERDE if self.botao_voltar_cena3.collidepoint(mouse_pos) else AMARELO_SEPIA
         pygame.draw.rect(self.tela, cor_botao, self.botao_voltar_cena3, border_radius=10)
@@ -804,19 +901,39 @@ class Jogo:
         self.tela.blit(self.img_fundo_cena2, (0, 0))
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
-        titulo = self.fonte_texto.render(
-            "Descubra a senha do cofre:", True, BRANCO,
+        linha1 = self.fonte_texto.render(
+            "Descubra a senha do cofre:", True, BRANCO
         )
-        self.tela.blit(titulo, titulo.get_rect(center=(LARGURA // 2, 160)))
+
+        linha2 = self.fonte_texto.render(
+            "Dica: Ano Lançamento IBM", True, BRANCO
+        )
+
+        # Centralizando cada linha
+        rect1 = linha1.get_rect(center=(LARGURA // 2, 160))
+        rect2 = linha2.get_rect(center=(LARGURA // 2, 200))  # mais abaixo
+
+        # Desenhando na tela
+        self.tela.blit(linha1, rect1)
+        self.tela.blit(linha2, rect2)
 
         self.cofre_senha.desenhar(self.tela, self.fonte_titulo)
 
-        instrucao = self.fonte_pequena.render(
-            "Clique em cima do quadrado para aumentar, embaixo para diminuir "
-            "(ou use a rodinha do mouse).", True, CINZA_CLARO,
+        linha1 = self.fonte_pequena.render(
+            "Clique em cima do quadrado para aumentar,", True, CINZA_CLARO
         )
-        self.tela.blit(instrucao, instrucao.get_rect(center=(LARGURA // 2, 400)))
+
+        linha2 = self.fonte_pequena.render(
+            "embaixo para diminuir (ou use o scroll do mouse).", True, CINZA_CLARO
+        )
+
+        rect1 = linha1.get_rect(center=(LARGURA // 2, 400))
+        rect2 = linha2.get_rect(center=(LARGURA // 2, 430))  # ajusta o espaçamento
+
+        self.tela.blit(linha1, rect1)
+        self.tela.blit(linha2, rect2)
 
         dica_voltar = self.fonte_pequena.render("ESC para voltar à sala", True, CINZA_CLARO)
         self.tela.blit(dica_voltar, (20, ALTURA - 35))
@@ -841,6 +958,7 @@ class Jogo:
         self.tela.blit(self.img_fundo_cena_dica1, (0, 0))
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         mouse_pos = pygame.mouse.get_pos()
         cor_botao = VERDE if self.botao_voltar_dica1.collidepoint(mouse_pos) else AMARELO_SEPIA
@@ -858,9 +976,10 @@ class Jogo:
         self.tela.blit(self.img_fundo_cena_impressora, (0, 0))
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         titulo = self.fonte_texto.render(
-            "Reordene as letras e números do relatório da impressora:", True, BRANCO,
+            "Reordene as letras e números do relatório da impressora:", True, AZUL_IBM,
         )
         self.tela.blit(titulo, titulo.get_rect(center=(LARGURA // 2, 180)))
 
@@ -898,6 +1017,7 @@ class Jogo:
         self.tela.blit(self.img_fundo_cena_dica2, (0, 0))
         self.desenhar_cronometro()
         self.desenhar_botao_inventario()
+        config_fase5.desenhar_icone(self.tela, self.img_config, self.img_config_hover)
 
         mouse_pos = pygame.mouse.get_pos()
         cor_botao = VERDE if self.botao_voltar_dica2.collidepoint(mouse_pos) else AMARELO_SEPIA
@@ -1033,9 +1153,11 @@ class Jogo:
     # -----------------------------------------------------------------
     def executar(self):
         rodando = True
+        saiu_por_fechar_janela = False
         while rodando:
             for evento in pygame.event.get():
                 if evento.type == pygame.QUIT:
+                    saiu_por_fechar_janela = True
                     rodando = False
 
                 elif evento.type == pygame.KEYDOWN:
@@ -1072,8 +1194,19 @@ class Jogo:
                         self.soltar_modulo()
 
                 elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
-                    if self.estado == Jogo.MENU and self.botao_iniciar.collidepoint(evento.pos):
+                    # Botão de configurações: sempre acessível em qualquer cena
+                    # jogável. O painel É o "jogo pausado" (ver
+                    # config_fase5.abrir_painel_config()) — nada do resto do laço
+                    # roda enquanto ele está aberto.
+                    if self.estado != Jogo.MENU and config_fase5.icone_rect(LARGURA).collidepoint(evento.pos):
+                        resultado_config = config_fase5.abrir_painel_config(
+                            self.tela, self.relogio, self.img_config, self.img_config_hover,
+                        )
+                        if resultado_config == "sair":
+                            rodando = False
+                    elif self.estado == Jogo.MENU and self.botao_iniciar.collidepoint(evento.pos):
                         self.iniciar_cronometro()
+                        audio_fase5.iniciar_musica_fundo()
                         self.estado = Jogo.CENA1
 
                     # Clique na impressora -> só funciona depois do cartão achado
@@ -1172,6 +1305,7 @@ class Jogo:
                         self.mostrar_painel_inventario = True
 
                     elif self.estado == Jogo.VITORIA and self.botao_reiniciar_vitoria.collidepoint(evento.pos):
+                        _parar_audio_seguro()
                         return "vitoria"
 
                     elif self.estado == Jogo.DERROTA and self.botao_reiniciar_derrota.collidepoint(evento.pos):
@@ -1224,13 +1358,78 @@ class Jogo:
             pygame.display.flip()
             self.relogio.tick(FPS)
 
-        pygame.quit()
-        sys.exit()
+        _parar_audio_seguro()
+        # Fechar a JANELA (evento QUIT) encerra o programa inteiro, igual
+        # já acontece nas outras fases. Sair pela tela de configurações
+        # ("Sair") devolve controle ao menu geral (None) em vez de matar
+        # o processo -- mesma correção aplicada em Pygame/Fase_7/fase_7.py.
+        if saiu_por_fechar_janela:
+            pygame.quit()
+            sys.exit()
+        return None
 
 
 # =====================================================================
-# 8. PONTO DE ENTRADA DO PROGRAMA
+# 8. PONTO DE ENTRADA DESTA FASE PARA O MENU GERAL
+# =====================================================================
+def run(character_image=None, character_name=None, genero="m", inventario=None):
+    """
+    Ponto de entrada da Fase 8, pronto para ser chamado pelo menu geral
+    do jogo (Pygame/menu/jogo.py) -- mesmo espírito de `run` na Fase 5
+    (fase_5.run), usado como modelo.
+
+    O menu geral já escolhe o personagem na sua própria tela
+    "personagens" (setas </>), antes do jogador entrar em qualquer
+    fase -- a escolha NÃO acontece aqui dentro da Fase 8. Esta função
+    só recebe o resultado dessa escolha e entrega para a classe Jogo:
+
+        modulo.Jogo(
+            character_image=CHARACTER_IMAGES.get(self.personagem_index),
+            character_name=self.get_personagem_name(self.personagem_index),
+            genero="m" if self.personagem_index == 0 else "f",
+        ).executar()
+
+    Parâmetros:
+        character_image: imagem do personagem vinda do menu geral
+            (CHARACTER_IMAGES.get(...)). Guardada em self.character_image
+            para uso futuro dentro da fase.
+        character_name: nome do personagem escolhido/renomeado no menu
+            geral. Guardado em self.character_name.
+        genero: "m" (Personagem 1) ou "f" (Personagem 2) -- é a partir
+            dele que a Fase 8 decide sozinha qual sprite, fundo de
+            intro e tela de vitória usar (ver Jogo.__init__).
+        inventario: opcional, para reaproveitar um inventário já
+            existente entre fases (mesmo uso que já existia antes).
+
+    Retorno: o mesmo que Jogo.executar() já devolve hoje -- a string
+    "vitoria" quando o jogador vence e clica no botão da tela de
+    vitória (nada quando a janela é fechada, pois o próprio laço
+    encerra o programa nesse caso).
+    """
+    jogo = Jogo(
+        inventario=inventario,
+        character_image=character_image,
+        character_name=character_name,
+        genero=genero,
+    )
+    return jogo.executar()
+
+
+def run_padrao():
+    """
+    Roda a Fase 8 isolada, fora do menu geral, com o Personagem 1 como
+    opção padrão (genero="m") -- útil para testar esta fase sozinha
+    (ex: `python fase_8.py`) sem precisar abrir o jogo completo nem
+    passar por nenhum menu.
+
+    Para testar a variante do Personagem 2 isoladamente, chame
+    run(genero="f") em vez desta função.
+    """
+    return run(genero="m")
+
+
+# =====================================================================
+# 9. PONTO DE ENTRADA DO PROGRAMA (rodando este arquivo sozinho)
 # =====================================================================
 if __name__ == "__main__":
-    jogo = Jogo()
-    jogo.executar()
+    run_padrao()
