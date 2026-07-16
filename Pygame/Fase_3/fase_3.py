@@ -1,5 +1,10 @@
 import pygame
 import sys
+import json
+import threading
+import queue
+import urllib.request
+import urllib.error
 
 pygame.init()
 
@@ -12,69 +17,88 @@ AZUL = (70, 110, 200)
 PRETO = (20, 20, 20)
 
 ASSETS = {
-    # Cenário
     "fundo": "assets/cenario/cenario_fase3.png",
-
-    # Decoração
     "corpo_personagem": "assets/decoracao/corpo do personagem.png",
-
-    # Objetos interativos (versão pequena, no cenário)
     "cartoes": "assets/interativos/cartoes.png",
-    "documento_codigo": "assets/interativos/documento_codigo.png",
     "icone_chatbot": "assets/interativos/icone_chatbot.png",
     "icone_inventario": "assets/interativos/icone_inventario.png",
+    "icone_configuracoes": "assets/interativos/icone_configuracoes.png",
     "maquina_tabulacao": "assets/interativos/maquina_tabulacao.png",
     "painel_config": "assets/interativos/painel_config.png",
     "gaveta_fechada": "assets/interativos/gaveta_fechada.png",
     "gaveta_aberta": "assets/interativos/gaveta_aberta.png",
-
-    # Telas ampliadas
     "objetivo": "assets/interativos/objetivo.png",
     "painel_ampliado": "assets/interativos/painel_ampliado.png",
     "processando3": "assets/interativos/processando3.png",
     "saindo": "assets/interativos/saindo.png",
-    "chatbot_tela": "assets/interativos/chatbot_tela.png",
-
-    # Personagem 1
+    # Tela de introdução (antes do jogo começar).
+    "fundo_intro": "assets/cenario/cena1.png",
+    # Fundo da cena final (jogador anda até a máquina do tempo).
+    "fundo_final": "assets/cenario/cena2.png",
+    # Cena final: máquina do tempo aberta (antes de entrar) e fechada
+    # (depois que o jogador entra), usadas na conclusão da fase 3.
+    "maquina_tempo_aberta": "assets/interativos/maquina_do_tempo2.png",
+    "maquina_tempo_fechada": "assets/interativos/maquina_do_tempo.png",
+    # Único documento que existe no cenário. Mostra o objetivo da missão
+    # (usa a mesma imagem "objetivo" já carregada para a tela ampliada).
     "p1_parado": "assets/personagem1/p1_parada.png",
     "p1_andando1": "assets/personagem1/p1_andando.png",
     "p1_andando2": "assets/personagem1/p1_andando2.png",
-
-    # Personagem 2
     "p2_parado": "assets/personagem2/p2_parado.png",
     "p2_andando1": "assets/personagem2/p2_andando.png",
     "p2_andando2": "assets/personagem2/p2_andando2.png",
-
-    # Áudios
     "musica_ambiente": "assets/musicas/ambiente.mp3",
     "som_click": "assets/musicas/sons/click.mp3",
 }
 
-# ---------------------------------------------------------------
-# QUAL TELA AMPLIADA (MODO) ABRE PARA CADA OBJETO INTERAGIDO
-# (objetos do cenário: jogador se aproxima e aperta "E";
-#  ícones de HUD: continuam sendo clicados com o mouse)
-# ---------------------------------------------------------------
+# Tela ampliada aberta ao interagir com cada objeto do cenário.
+# "chatbot" não está aqui: ele abre o chat de texto livre do Hermann.
 TELAS_AMPLIADAS = {
-    "chatbot": "chatbot",                   # conversa: missão + dica do enigma da gaveta
-    "documento codigo": "documento_objetivo",  # documento que revela o objetivo da missão
-    "documento colunas": "documento_colunas",  # documento explicando as colunas
-    "painel config": "painel",              # painel interativo
-    "maquina tabulacao": "maquina",         # máquina interativa
-    "gaveta": "gaveta",                     # cadeado/gaveta: aqui ficam os cartões de verdade
+    "documento objetivo": "documento_objetivo",
+    "painel config": "painel",
+    "maquina tabulacao": "maquina",
+    "gaveta": "gaveta",
+    "inventario": "inventario",
+    "configuracoes": "configuracoes",
 }
 
 TAMANHO_ZOOM = (700, 480)
-
-# Distância (em pixels) além da hitbox do objeto em que a interação por
-# proximidade + tecla "E" já fica disponível para o jogador.
 RAIO_INTERACAO = 40
 
-# ---------------------------------------------------------------
-# REGRAS DO ENIGMA PRINCIPAL (missão da tabulação)
-# O documento de objetivo pede: "Conte apenas trabalhadores adultos"
-# então a configuração correta é Modo = Contar, colunas = Adulto + Trabalhador
-# ---------------------------------------------------------------
+OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_MODELO = "qwen2.5:3b-instruct"
+OLLAMA_TIMEOUT_SEGUNDOS = 20
+NPC_RAIO_INTERACAO = 60
+CHAT_HISTORICO_VISIVEL = 3
+
+# Base do Hermann. A cada pergunta, uma dica sobre o passo atual da
+# missão (calculada a partir do progresso do jogador) é anexada aqui.
+PROMPT_SISTEMA_HERMANN = (
+    "Voce e o Professor Hermann, cientista de dados do ano de 1880, "
+    "especialista em maquinas de tabulacao por cartoes perfurados. "
+    "Voce trata o jogador como um colega cientista, e SEMPRE se refere "
+    "a ele chamando-o de 'cientista' (nunca de 'professor' ou outro "
+    "titulo). Missao do cientista: configurar uma maquina de tabulacao "
+    "para contar apenas os registros de 'trabalhadores adultos', usando "
+    "cartoes perfurados guardados numa gaveta trancada com cadeado. "
+    "Responda SEMPRE em portugues, em no maximo 2 frases curtas, tom "
+    "simpatico e um pouco formal. De dicas sutis sobre o passo atual "
+    "descrito abaixo, mas NUNCA revele a combinacao do cadeado nem a "
+    "configuracao exata do painel. Se a pergunta nao tiver relacao com "
+    "a sala ou a missao, responda que prefere focar no trabalho e traga "
+    "o assunto de volta a tabulacao."
+)
+
+# Texto exibido no balão de fala do Hermann na tela de introdução
+# (antes, esse texto era a primeira mensagem automática do chat).
+TEXTO_INTRO_HERMANN = (
+    "Bem-vindo(a), cientista! Estamos em 1880 e a Sociedade de "
+    "Estatistica precisa da sua ajuda: configure a maquina de "
+    "tabulacao para contar apenas os registros de trabalhadores "
+    "adultos. Os cartoes perfurados estao guardados na gaveta da "
+    "escrivaninha, mas ela esta trancada. Boa sorte, cientista!"
+)
+
 COLUNAS_DISPONIVEIS = ["Homem", "Mulher", "Adulto", "Criança", "Trabalhador", "Estudante"]
 MODOS_DISPONIVEIS = ["Contar", "Classificar", "Somar"]
 
@@ -84,21 +108,10 @@ RESULTADO_CORRETO = 4  # "4 registros", conforme o GDD
 
 DURACAO_PROCESSAMENTO_MS = 1400
 
+# Tempo limite da fase, mostrado no cronômetro do canto superior direito.
+TEMPO_LIMITE_MS = 5 * 60 * 1000
 
 CADEADO_GAVETA_CORRETO = (2, 4)  # resposta da charada = "24" (horas do dia)
-
-CONVERSA_CHATBOT = [
-    ("chatbot", "Ainda bem que voce chegou! Sua missao aqui e simples: "
-                "configurar a maquina de tabulacao para contar apenas os "
-                "registros de trabalhadores adultos."),
-    ("chatbot", "Os cartoes perfurados que voce vai usar na maquina estao "
-                "guardados na gaveta da escrivaninha, mas ela esta trancada "
-                "com um cadeado de dois numeros."),
-    ("chatbot", "Para descobrir a combinacao, pense nisso: 'Quantas horas "
-                "tem um dia inteiro, do comeco da manha ao fim da noite?'"),
-    ("chatbot", "Ajuste os dois discos do cadeado para esse numero e a "
-                "gaveta deve abrir, liberando os cartoes que voce precisa."),
-]
 
 
 def carregar_imagem(caminho, tamanho, cor_fallback=CINZA, label=""):
@@ -117,20 +130,12 @@ def carregar_imagem(caminho, tamanho, cor_fallback=CINZA, label=""):
 
 
 def criar_hitbox_invisivel(tamanho):
-    """Cria uma superfície totalmente transparente, do tamanho informado.
-
-    Usada para objetos que precisam continuar clicáveis/interagíveis
-    (têm um retângulo de colisão), mas que não devem aparecer
-    visualmente no cenário — por exemplo a gaveta, cujo desenho já faz
-    parte da arte de fundo da sala.
-    """
     superficie = pygame.Surface(tamanho, pygame.SRCALPHA)
     superficie.fill((0, 0, 0, 0))
     return superficie
 
 
 def quebrar_texto(texto, fonte, largura_max):
-    """Quebra um texto em várias linhas para caber em uma largura máxima."""
     palavras = texto.split(" ")
     linhas = []
     linha_atual = ""
@@ -202,14 +207,15 @@ class Jogo:
         self.clock = pygame.time.Clock()
         self.rodando = True
 
-        # Fontes (carregadas uma vez só)
+        # Controla qual "tela" está ativa: introdução, jogo principal
+        # ou a cena final de conclusão da fase.
+        self.fase = "intro"
+
         self.font_titulo = pygame.font.SysFont(None, 34)
         self.font_texto = pygame.font.SysFont(None, 24)
         self.font_pequena = pygame.font.SysFont(None, 20)
 
-        # ---------------------------------------------------------------
-        # ESTADO DO ENIGMA (segue o GDD) + estado da gaveta secundária
-        # ---------------------------------------------------------------
+        # Estado dos enigmas (segue o GDD) + enigma da gaveta.
         self.estado = {
             "documento_objetivo_lido": False,
             "documento_colunas_lido": False,
@@ -217,34 +223,34 @@ class Jogo:
             "config_correta": False,
             "tabulacao_concluida": False,
             "peca_liberada": False,
-
-            # Enigma da gaveta (independente da história principal)
             "gaveta_destrancada": False,
             "gaveta_aberta": False,
             "cartoes_coletados": False,
         }
 
-        # Seleções atuais do jogador no painel
+        # Itens que o jogador vai acumulando (mostrados na tela de
+        # inventário). Cada item é um dict com nome + descrição curta.
+        self.itens_inventario = []
+
         self.painel_modo_selecionado = None
         self.painel_colunas_selecionadas = set()
-        self.painel_mensagem = ""  # feedback ao confirmar
+        self.painel_mensagem = ""
 
-        # Estado da máquina
         self.maquina_processando = False
         self.maquina_processamento_inicio = 0
         self.maquina_mensagem = "Pegue os cartoes perfurados e configure o painel para iniciar."
 
-        # Estado do cadeado da gaveta
         self.gaveta_valores = [0, 0]
         self.gaveta_mensagem = "Gire os discos e clique em Testar."
 
-        # Índice da mensagem atual mostrada na tela do chatbot
-        self.chatbot_indice_mensagem = 0
+        # Chat com o Professor Hermann (IA local via Ollama).
+        self.chat_ativo = False
+        self.chat_input = ""
+        self.chat_historico = []
+        self.chat_carregando = False
+        self.chat_resposta_queue = queue.Queue()
 
-        # ---------------------------------------------------------------
-        # ZOOM: geometria e imagens de fundo de cada tela ampliada
-        # ---------------------------------------------------------------
-        self.tela_ampliada_atual = None  # None ou string do modo (ver TELAS_AMPLIADAS)
+        self.tela_ampliada_atual = None
 
         self.zoom_rect = pygame.Rect(0, 0, *TAMANHO_ZOOM)
         self.zoom_rect.center = (LARGURA // 2, ALTURA // 2)
@@ -258,17 +264,14 @@ class Jogo:
         )
 
         self.img_objetivo = carregar_imagem(ASSETS["objetivo"], TAMANHO_ZOOM, CINZA, "objetivo")
-        self.img_documento_colunas = carregar_imagem(ASSETS["documento_codigo"], TAMANHO_ZOOM, CINZA, "documento colunas")
+        self.img_documento_colunas = carregar_imagem(ASSETS["objetivo"], TAMANHO_ZOOM, CINZA, "documento colunas")
         self.img_painel_fundo = carregar_imagem(ASSETS["painel_ampliado"], TAMANHO_ZOOM, CINZA, "painel")
         self.img_maquina_fundo = carregar_imagem(ASSETS["processando3"], TAMANHO_ZOOM, CINZA, "maquina")
         self.img_recompensa = carregar_imagem(ASSETS["saindo"], TAMANHO_ZOOM, CINZA, "recompensa")
-        self.img_chatbot_fundo = carregar_imagem(ASSETS["chatbot_tela"], TAMANHO_ZOOM, CINZA, "chatbot")
         self.img_gaveta_fechada_zoom = carregar_imagem(ASSETS["gaveta_fechada"], TAMANHO_ZOOM, CINZA, "gaveta fechada")
         self.img_gaveta_aberta_zoom = carregar_imagem(ASSETS["gaveta_aberta"], TAMANHO_ZOOM, CINZA, "gaveta aberta")
 
-        # ---------------------------------------------------------------
-        # WIDGETS DO PAINEL (checkboxes de colunas + radios de modo)
-        # ---------------------------------------------------------------
+        # Widgets do painel (checkboxes de colunas + radios de modo).
         self.painel_rects_modo = {}
         x0 = self.zoom_rect.left + 40
         y_modo = self.zoom_rect.top + 90
@@ -285,9 +288,6 @@ class Jogo:
             self.zoom_rect.centerx - 90, self.zoom_rect.bottom - 55, 180, 40
         )
 
-        # ---------------------------------------------------------------
-        # WIDGETS DA MÁQUINA
-        # ---------------------------------------------------------------
         self.maquina_botao_iniciar = pygame.Rect(
             self.zoom_rect.centerx - 90, self.zoom_rect.bottom - 130, 180, 40
         )
@@ -295,9 +295,7 @@ class Jogo:
             self.zoom_rect.centerx - 110, self.zoom_rect.bottom - 75, 220, 40
         )
 
-        # ---------------------------------------------------------------
-        # WIDGETS DO CADEADO DA GAVETA (2 discos, cada um 0-9)
-        # ---------------------------------------------------------------
+        # Widgets do cadeado da gaveta (2 discos, cada um 0-9).
         largura_disco = 90
         espaco_discos = 30
         total_discos = largura_disco * 2 + espaco_discos
@@ -317,57 +315,33 @@ class Jogo:
         self.gaveta_botao_testar = pygame.Rect(
             self.zoom_rect.centerx - 90, self.zoom_rect.bottom - 90, 180, 40
         )
-        # Área clicável dos cartões, usada só depois que a gaveta é aberta
         self.gaveta_area_cartoes = pygame.Rect(
             self.zoom_rect.centerx - 100, self.zoom_rect.top + 260, 200, 120
         )
 
-        # ---------------------------------------------------------------
-        # WIDGET DO CHATBOT (avançar mensagem)
-        # ---------------------------------------------------------------
-        self.chatbot_botao_avancar = pygame.Rect(
-            self.zoom_rect.right - 170, self.zoom_rect.bottom - 55, 130, 38
-        )
-
-        # Imagem dos cartões perfurados exibida dentro da gaveta quando ela
-        # está aberta e ainda não foram coletados (substitui a antiga caixa
-        # de cartões, que foi removida do jogo).
         self.img_cartoes_mundo = carregar_imagem(ASSETS["cartoes"], (150, 90), CINZA, "cartoes")
         self.cartoes_mundo_pos = (460, 425)
 
+        self.img_cartoes_zoom = carregar_imagem(
+            ASSETS["cartoes"], (self.gaveta_area_cartoes.width, self.gaveta_area_cartoes.height),
+            CINZA, "cartoes"
+        )
+
+        # Ícone pequeno usado para representar os cartões perfurados
+        # dentro da tela de inventário.
+        self.img_cartoes_inventario = carregar_imagem(ASSETS["cartoes"], (48, 48), CINZA, "cartoes")
+
         self.fundo = carregar_imagem(ASSETS["fundo"], (LARGURA, ALTURA), label="sala")
 
-        # ---------------------------------------------------------------
-        # DECORAÇÃO (itens fixos, não clicáveis)
-        # (sem itens de decoração por enquanto)
-        # ---------------------------------------------------------------
         self.decoracao = []
 
         self.personagem_cenario = carregar_imagem(
             ASSETS["corpo_personagem"], (350, 350), CINZA, "personagem cenario"
         )
         self.personagem_cenario_pos = (540, 240)
+        self.npc_rect = self.personagem_cenario.get_rect(topleft=self.personagem_cenario_pos)
 
-        # ---------------------------------------------------------------
-        # OBJETOS INTERATIVOS
-        # Cada objeto tem um "tipo":
-        # - "mundo": objeto físico da sala. O jogador precisa ANDAR até
-        #   perto dele e apertar a tecla E para interagir (sem mouse).
-        # - "hud": ícone fixo de interface (inventário/chatbot), que
-        #   continua sendo clicado normalmente com o mouse, já que não
-        #   faz parte do espaço físico percorrido pelo personagem.
-        #
-        # Layout:
-        # - maquina_tabulacao: encostada na parede da esquerda
-        # - painel_config: na parede, centralizado acima da mesa
-        # - gaveta: na frente da mesa, abaixo do tampo (item de verdade).
-        #   É invisível (hitbox transparente) porque o desenho da gaveta
-        #   já faz parte da arte de fundo da sala; só existe para marcar
-        #   a área onde o jogador pode interagir com a tecla E.
-        # - documento_codigo / documento_colunas: presos na parede,
-        #   perto da estante
-        # - icone_inventario / icone_chatbot: HUD, canto superior esquerdo
-        # ---------------------------------------------------------------
+        # Objetos "mundo" exigem aproximação + tecla E; "hud" é clicado com o mouse.
         self.interativos = [
             {
                 "img": carregar_imagem(ASSETS["maquina_tabulacao"], (300, 300), CINZA, "maquina tabulacao"),
@@ -390,24 +364,26 @@ class Jogo:
                 "tipo": "mundo",
                 "desenhar": False,
             },
+            # O documento objetivo fica escondido (invisível) entre os
+            # livros da prateleira — só a área de interação existe.
             {
-                "img": carregar_imagem(ASSETS["documento_codigo"], (95, 90), CINZA, "documento codigo"),
+                "img": criar_hitbox_invisivel((95, 90)),
                 "pos": (850, 455),
-                "nome": "documento codigo",
+                "nome": "documento objetivo",
                 "tipo": "mundo",
-                "desenhar": True,
-            },
-            {
-                "img": carregar_imagem(ASSETS["documento_codigo"], (95, 90), CINZA, "documento colunas"),
-                "pos": (850, 340),
-                "nome": "documento colunas",
-                "tipo": "mundo",
-                "desenhar": True,
+                "desenhar": False,
             },
             {
                 "img": carregar_imagem(ASSETS["icone_inventario"], (80, 80), CINZA, "inventario"),
                 "pos": (15, 15),
                 "nome": "inventario",
+                "tipo": "hud",
+                "desenhar": True,
+            },
+            {
+                "img": carregar_imagem(ASSETS["icone_configuracoes"], (80, 80), CINZA, "config"),
+                "pos": (175, 15),
+                "nome": "configuracoes",
                 "tipo": "hud",
                 "desenhar": True,
             },
@@ -432,8 +408,71 @@ class Jogo:
             posicao_inicial=(80, ALTURA - 200),
         )
 
+        # -------------------------------------------------------------
+        # Tela de introdução (fase == "intro")
+        # -------------------------------------------------------------
+        self.fundo_intro = carregar_imagem(ASSETS["fundo_intro"], (LARGURA, ALTURA), label="fundo intro 1880")
+        self.fundo_final = carregar_imagem(ASSETS["fundo_final"], (LARGURA, ALTURA), label="fundo final")
+
+        self.hermann_intro_img = carregar_imagem(
+            ASSETS["corpo_personagem"], (600, 600), CINZA, "hermann"
+        )
+        self.hermann_intro_pos = (LARGURA - 500, ALTURA - 400)
+        self.hermann_intro_rect = self.hermann_intro_img.get_rect(topleft=self.hermann_intro_pos)
+
+        self.botao_iniciar_jogo_rect = pygame.Rect(0, 0, 220, 50)
+        self.botao_iniciar_jogo_rect.center = (LARGURA // 2, ALTURA - 50)
+
+        # -------------------------------------------------------------
+        # Cena final (fase == "final"): jogador anda até a máquina do
+        # tempo e entra nela para concluir a fase.
+        # -------------------------------------------------------------
+        tamanho_maquina_tempo = (280, 320)
+        self.maquina_tempo_aberta = carregar_imagem(
+            ASSETS["maquina_tempo_aberta"], tamanho_maquina_tempo, CINZA, "maquina tempo aberta"
+        )
+        self.maquina_tempo_fechada = carregar_imagem(
+            ASSETS["maquina_tempo_fechada"], tamanho_maquina_tempo, CINZA, "maquina tempo fechada"
+        )
+        self.maquina_tempo_pos = (LARGURA - 340, ALTURA - 380)
+        self.maquina_tempo_rect = self.maquina_tempo_aberta.get_rect(topleft=self.maquina_tempo_pos)
+
+        self.final_estado = "andando"  # "andando" -> "fechando" -> "concluido"
+        self.final_transicao_inicio = 0
+        self.final_duracao_fechando_ms = 900
+
+        # -------------------------------------------------------------
+        # Cronômetro da fase (5 minutos). Começa a contar quando o
+        # jogador sai da tela de introdução.
+        # -------------------------------------------------------------
+        self.tempo_inicio_jogo = None
+        self.tempo_esgotado = False
+
+        self.botao_reiniciar_rect = pygame.Rect(0, 0, 220, 50)
+        self.botao_reiniciar_rect.center = (LARGURA // 2, ALTURA // 2 + 60)
+
+        # -------------------------------------------------------------
+        # Configurações (som) + widgets da tela de configurações.
+        # -------------------------------------------------------------
+        self.volume_musica = 70  # 0-100
+        self.sons_ativados = True
+
+        self.config_botao_vol_menos = pygame.Rect(
+            self.zoom_rect.left + 260, self.zoom_rect.top + 110, 36, 36
+        )
+        self.config_botao_vol_mais = pygame.Rect(
+            self.zoom_rect.left + 380, self.zoom_rect.top + 110, 36, 36
+        )
+        self.config_checkbox_sons = pygame.Rect(
+            self.zoom_rect.left + 40, self.zoom_rect.top + 180, 26, 26
+        )
+        self.config_botao_reiniciar = pygame.Rect(
+            self.zoom_rect.centerx - 110, self.zoom_rect.bottom - 90, 220, 40
+        )
+
         try:
             pygame.mixer.music.load(ASSETS["musica_ambiente"])
+            pygame.mixer.music.set_volume(self.volume_musica / 100)
             pygame.mixer.music.play(-1)
         except pygame.error:
             print("Aviso: não foi possível carregar a música de ambiente.")
@@ -444,8 +483,296 @@ class Jogo:
             self.som_click = None
             print("Aviso: não foi possível carregar o som de clique.")
 
+    def _tocar_click(self):
+        if self.sons_ativados and self.som_click:
+            self.som_click.play()
+
     # =================================================================
-    # ZOOM: abrir / fechar
+    # INVENTÁRIO
+    # =================================================================
+    def _adicionar_item_inventario(self, nome, icone, descricao=""):
+        """Adiciona um item ao inventário, evitando duplicar o mesmo nome."""
+        if any(item["nome"] == nome for item in self.itens_inventario):
+            return
+        self.itens_inventario.append({"nome": nome, "icone": icone, "descricao": descricao})
+
+    # =================================================================
+    # TELA DE INTRODUÇÃO
+    # =================================================================
+    def _processar_evento_intro(self, evento):
+        iniciar = False
+        if evento.type == pygame.MOUSEBUTTONDOWN and self.botao_iniciar_jogo_rect.collidepoint(evento.pos):
+            iniciar = True
+        elif evento.type == pygame.KEYDOWN and evento.key in (
+            pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE
+        ):
+            iniciar = True
+
+        if iniciar:
+            self._tocar_click()
+            self._iniciar_fase_jogando()
+
+    def _iniciar_fase_jogando(self):
+        self.fase = "jogando"
+        self.tempo_inicio_jogo = pygame.time.get_ticks()
+        self.tempo_esgotado = False
+
+    def _desenhar_intro(self):
+        self.tela.blit(self.fundo_intro, (0, 0))
+        self.tela.blit(self.hermann_intro_img, self.hermann_intro_pos)
+
+        titulo = self.font_titulo.render("Escape.from_past()", True, BRANCO)
+        self.tela.blit(titulo, (30, 30))
+
+        largura_balao = 460
+        linhas = quebrar_texto(TEXTO_INTRO_HERMANN, self.font_pequena, largura_balao - 30)
+        altura_balao = 46 + len(linhas) * 22
+
+        balao = pygame.Rect(0, 0, largura_balao, altura_balao)
+        balao.left = max(120, self.hermann_intro_rect.left - largura_balao - 20)
+        balao.top = max(120, self.hermann_intro_rect.top - 10)
+
+        overlay = pygame.Surface(balao.size, pygame.SRCALPHA)
+        overlay.fill((20, 20, 25, 225))
+        self.tela.blit(overlay, balao.topleft)
+        pygame.draw.rect(self.tela, BRANCO, balao, width=2, border_radius=10)
+
+        nome = self.font_texto.render("Professor Hermann", True, (255, 210, 120))
+        self.tela.blit(nome, (balao.left + 15, balao.top + 8))
+
+        y = balao.top + 34
+        for linha in linhas:
+            render = self.font_pequena.render(linha, True, BRANCO)
+            self.tela.blit(render, (balao.left + 15, y))
+            y += 22
+
+        pygame.draw.rect(self.tela, VERDE, self.botao_iniciar_jogo_rect, border_radius=8)
+        texto_botao = self.font_texto.render("Iniciar Jogo", True, BRANCO)
+        self.tela.blit(texto_botao, texto_botao.get_rect(center=self.botao_iniciar_jogo_rect.center))
+
+    # =================================================================
+    # CENA FINAL (máquina do tempo / conclusão da fase 3)
+    # =================================================================
+    def _iniciar_fase_final(self):
+        self.fase = "final"
+        self.final_estado = "andando"
+        self.jogador.rect.topleft = (80, ALTURA - 200)
+        self.jogador._atualizar_sprite(False)
+
+    def _processar_evento_final(self, evento):
+        # Não há cliques ou teclas especiais nessa cena além do
+        # movimento (tratado em _atualizar_final).
+        pass
+
+    def _atualizar_final(self):
+        if self.final_estado == "andando":
+            teclas = pygame.key.get_pressed()
+            limites = self.tela.get_rect()
+            self.jogador.mover(teclas, limites)
+
+            if self.jogador.rect.colliderect(self.maquina_tempo_rect):
+                self.final_estado = "fechando"
+                self.final_transicao_inicio = pygame.time.get_ticks()
+                self._tocar_click()
+
+        elif self.final_estado == "fechando":
+            agora = pygame.time.get_ticks()
+            if agora - self.final_transicao_inicio >= self.final_duracao_fechando_ms:
+                self.final_estado = "concluido"
+
+    def _desenhar_final(self):
+        self.tela.blit(self.fundo_final, (0, 0))
+
+        if self.final_estado == "andando":
+            self.tela.blit(self.maquina_tempo_aberta, self.maquina_tempo_pos)
+            self.jogador.desenhar(self.tela)
+
+            area_interacao = self.maquina_tempo_rect.inflate(RAIO_INTERACAO * 2, RAIO_INTERACAO * 2)
+            if area_interacao.colliderect(self.jogador.rect):
+                dica = self.font_pequena.render("Entre na máquina", True, BRANCO)
+                self.tela.blit(
+                    dica,
+                    (self.maquina_tempo_rect.centerx - dica.get_width() // 2, self.maquina_tempo_rect.top - 24),
+                )
+        else:
+            self.tela.blit(self.maquina_tempo_fechada, self.maquina_tempo_pos)
+
+        if self.final_estado == "concluido":
+            overlay = pygame.Surface((LARGURA, ALTURA), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 190))
+            self.tela.blit(overlay, (0, 0))
+
+            titulo = self.font_titulo.render("Fase 3 concluída!", True, BRANCO)
+            self.tela.blit(titulo, titulo.get_rect(center=(LARGURA // 2, ALTURA // 2 - 20)))
+
+            subtitulo = self.font_pequena.render(
+                "O cientista viajou no tempo com a peça recuperada.", True, (220, 220, 220)
+            )
+            self.tela.blit(subtitulo, subtitulo.get_rect(center=(LARGURA // 2, ALTURA // 2 + 20)))
+
+    # =================================================================
+    # CRONÔMETRO / TEMPO ESGOTADO
+    # =================================================================
+    def _tempo_restante_ms(self):
+        if self.tempo_inicio_jogo is None:
+            return TEMPO_LIMITE_MS
+        decorrido = pygame.time.get_ticks() - self.tempo_inicio_jogo
+        return max(0, TEMPO_LIMITE_MS - decorrido)
+
+    def _desenhar_cronometro(self):
+        restante_ms = self._tempo_restante_ms()
+        minutos = restante_ms // 60000
+        segundos = (restante_ms // 1000) % 60
+        texto = f"{minutos:02d}:{segundos:02d}"
+
+        cor = VERMELHO if restante_ms <= 30_000 else BRANCO
+        render = self.font_texto.render(texto, True, cor)
+
+        caixa = pygame.Rect(0, 0, render.get_width() + 24, 36)
+        caixa.topright = (LARGURA - 15, 15)
+
+        overlay = pygame.Surface(caixa.size, pygame.SRCALPHA)
+        overlay.fill((20, 20, 20, 190))
+        self.tela.blit(overlay, caixa.topleft)
+        pygame.draw.rect(self.tela, cor, caixa, width=1, border_radius=6)
+        self.tela.blit(render, render.get_rect(center=caixa.center))
+
+    def _processar_evento_tempo_esgotado(self, evento):
+        if evento.type == pygame.MOUSEBUTTONDOWN and self.botao_reiniciar_rect.collidepoint(evento.pos):
+            self._tocar_click()
+            self._reiniciar_jogo()
+        elif evento.type == pygame.KEYDOWN and evento.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            self._reiniciar_jogo()
+
+    def _desenhar_tempo_esgotado(self):
+        self.tela.blit(self.fundo, (0, 0))
+
+        overlay = pygame.Surface((LARGURA, ALTURA), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 210))
+        self.tela.blit(overlay, (0, 0))
+
+        titulo = self.font_titulo.render("Tempo esgotado!", True, VERMELHO)
+        self.tela.blit(titulo, titulo.get_rect(center=(LARGURA // 2, ALTURA // 2 - 60)))
+
+        subtitulo = self.font_texto.render(
+            "Os 5 minutos acabaram. Você precisa reiniciar o jogo.", True, BRANCO
+        )
+        self.tela.blit(subtitulo, subtitulo.get_rect(center=(LARGURA // 2, ALTURA // 2 - 10)))
+
+        pygame.draw.rect(self.tela, VERMELHO, self.botao_reiniciar_rect, border_radius=8)
+        texto_botao = self.font_texto.render("Reiniciar jogo", True, BRANCO)
+        self.tela.blit(texto_botao, texto_botao.get_rect(center=self.botao_reiniciar_rect.center))
+
+    def _reiniciar_jogo(self):
+        """Restaura todo o progresso e volta para a tela de introdução."""
+        self.estado = {
+            "documento_objetivo_lido": False,
+            "documento_colunas_lido": False,
+            "painel_configurado": False,
+            "config_correta": False,
+            "tabulacao_concluida": False,
+            "peca_liberada": False,
+            "gaveta_destrancada": False,
+            "gaveta_aberta": False,
+            "cartoes_coletados": False,
+        }
+        self.itens_inventario = []
+
+        self.painel_modo_selecionado = None
+        self.painel_colunas_selecionadas = set()
+        self.painel_mensagem = ""
+
+        self.maquina_processando = False
+        self.maquina_processamento_inicio = 0
+        self.maquina_mensagem = "Pegue os cartoes perfurados e configure o painel para iniciar."
+
+        self.gaveta_valores = [0, 0]
+        self.gaveta_mensagem = "Gire os discos e clique em Testar."
+
+        self.chat_ativo = False
+        self.chat_input = ""
+        self.chat_historico = []
+        self.chat_carregando = False
+
+        self.tela_ampliada_atual = None
+
+        self.final_estado = "andando"
+        self.final_transicao_inicio = 0
+
+        self.tempo_inicio_jogo = None
+        self.tempo_esgotado = False
+
+        self.jogador.rect.topleft = (80, ALTURA - 200)
+        self.jogador._atualizar_sprite(False)
+
+        self.fase = "intro"
+
+    # =================================================================
+    # CONFIGURAÇÕES
+    # =================================================================
+    def _clicar_configuracoes(self, pos):
+        if self.config_botao_vol_menos.collidepoint(pos):
+            self.volume_musica = max(0, self.volume_musica - 10)
+            pygame.mixer.music.set_volume(self.volume_musica / 100)
+            return
+
+        if self.config_botao_vol_mais.collidepoint(pos):
+            self.volume_musica = min(100, self.volume_musica + 10)
+            pygame.mixer.music.set_volume(self.volume_musica / 100)
+            return
+
+        if self.config_checkbox_sons.collidepoint(pos):
+            self.sons_ativados = not self.sons_ativados
+            return
+
+        if self.config_botao_reiniciar.collidepoint(pos):
+            self._reiniciar_jogo()
+            return
+
+    def _desenhar_configuracoes(self):
+        titulo = self.font_titulo.render("Configurações", True, BRANCO)
+        self.tela.blit(titulo, (self.zoom_rect.left + 40, self.zoom_rect.top + 40))
+
+        rotulo_musica = self.font_texto.render("Volume da música", True, BRANCO)
+        self.tela.blit(rotulo_musica, (self.zoom_rect.left + 40, self.zoom_rect.top + 118))
+
+        pygame.draw.rect(self.tela, AZUL, self.config_botao_vol_menos, border_radius=6)
+        menos = self.font_texto.render("-", True, BRANCO)
+        self.tela.blit(menos, menos.get_rect(center=self.config_botao_vol_menos.center))
+
+        valor_rect = pygame.Rect(
+            self.config_botao_vol_menos.right + 8, self.config_botao_vol_menos.top,
+            self.config_botao_vol_mais.left - self.config_botao_vol_menos.right - 16, 36,
+        )
+        pygame.draw.rect(self.tela, (60, 60, 60), valor_rect, border_radius=6)
+        pygame.draw.rect(self.tela, BRANCO, valor_rect, width=1, border_radius=6)
+        valor_texto = self.font_texto.render(f"{self.volume_musica}%", True, BRANCO)
+        self.tela.blit(valor_texto, valor_texto.get_rect(center=valor_rect.center))
+
+        pygame.draw.rect(self.tela, AZUL, self.config_botao_vol_mais, border_radius=6)
+        mais = self.font_texto.render("+", True, BRANCO)
+        self.tela.blit(mais, mais.get_rect(center=self.config_botao_vol_mais.center))
+
+        pygame.draw.rect(
+            self.tela, VERDE if self.sons_ativados else (60, 60, 60),
+            self.config_checkbox_sons, border_radius=4,
+        )
+        pygame.draw.rect(self.tela, BRANCO, self.config_checkbox_sons, width=1, border_radius=4)
+        if self.sons_ativados:
+            check = self.font_pequena.render("X", True, BRANCO)
+            self.tela.blit(check, check.get_rect(center=self.config_checkbox_sons.center))
+
+        rotulo_sons = self.font_texto.render("Efeitos sonoros (cliques)", True, BRANCO)
+        self.tela.blit(
+            rotulo_sons, (self.config_checkbox_sons.right + 10, self.config_checkbox_sons.top - 2)
+        )
+
+        pygame.draw.rect(self.tela, VERMELHO, self.config_botao_reiniciar, border_radius=6)
+        texto_reiniciar = self.font_texto.render("Reiniciar jogo", True, BRANCO)
+        self.tela.blit(texto_reiniciar, texto_reiniciar.get_rect(center=self.config_botao_reiniciar.center))
+
+    # =================================================================
+    # ZOOM
     # =================================================================
     def abrir_zoom(self, modo):
         self.tela_ampliada_atual = modo
@@ -453,10 +780,12 @@ class Jogo:
             self.estado["documento_objetivo_lido"] = True
         elif modo == "documento_colunas":
             self.estado["documento_colunas_lido"] = True
-        elif modo == "chatbot":
-            self.chatbot_indice_mensagem = 0
 
     def fechar_zoom(self):
+        if self.tela_ampliada_atual == "recompensa" and self.estado["peca_liberada"]:
+            self.tela_ampliada_atual = None
+            self._iniciar_fase_final()
+            return
         self.tela_ampliada_atual = None
 
     # =================================================================
@@ -466,41 +795,54 @@ class Jogo:
         for evento in pygame.event.get():
             if evento.type == pygame.QUIT:
                 self.rodando = False
+                continue
+
+            if self.fase == "intro":
+                self._processar_evento_intro(evento)
+                continue
+
+            if self.fase == "final":
+                self._processar_evento_final(evento)
+                continue
+
+            if self.fase == "tempo_esgotado":
+                self._processar_evento_tempo_esgotado(evento)
+                continue
+
+            if self.chat_ativo:
+                self._processar_evento_chat(evento)
+                continue
 
             if self.tela_ampliada_atual is not None:
                 self._processar_evento_zoom(evento)
                 continue
 
-            # Ícones de HUD (inventário, chatbot) continuam sendo
-            # acionados normalmente com o mouse.
             if evento.type == pygame.MOUSEBUTTONDOWN:
                 for obj in self.interativos:
                     if obj.get("tipo") != "hud":
                         continue
                     rect = obj["img"].get_rect(topleft=obj["pos"])
                     if rect.collidepoint(evento.pos):
-                        if self.som_click:
-                            self.som_click.play()
-                        modo_zoom = TELAS_AMPLIADAS.get(obj["nome"])
-                        if modo_zoom:
-                            self.abrir_zoom(modo_zoom)
+                        self._tocar_click()
+                        if obj["nome"] == "chatbot":
+                            self._abrir_chat_npc()
+                        else:
+                            modo_zoom = TELAS_AMPLIADAS.get(obj["nome"])
+                            if modo_zoom:
+                                self.abrir_zoom(modo_zoom)
                         break
 
-            # Objetos físicos do cenário: o jogador precisa andar até
-            # perto do objeto e apertar "E" para interagir.
             if evento.type == pygame.KEYDOWN and evento.key == pygame.K_e:
                 objeto_proximo = self._objeto_interativo_proximo()
                 if objeto_proximo is not None:
-                    if self.som_click:
-                        self.som_click.play()
+                    self._tocar_click()
                     modo_zoom = TELAS_AMPLIADAS.get(objeto_proximo["nome"])
                     if modo_zoom:
                         self.abrir_zoom(modo_zoom)
+                elif self._npc_proximo():
+                    self._abrir_chat_npc()
 
     def _objeto_interativo_proximo(self):
-        """Retorna o objeto do tipo 'mundo' mais próximo do jogador,
-        desde que esteja dentro do raio de interação — ou None se
-        nenhum objeto estiver ao alcance."""
         melhor_objeto = None
         menor_distancia = None
 
@@ -524,6 +866,10 @@ class Jogo:
 
         return melhor_objeto
 
+    def _npc_proximo(self):
+        area_interacao = self.npc_rect.inflate(NPC_RAIO_INTERACAO * 2, NPC_RAIO_INTERACAO * 2)
+        return area_interacao.colliderect(self.jogador.rect)
+
     def _processar_evento_zoom(self, evento):
         if evento.type == pygame.KEYDOWN and evento.key == pygame.K_ESCAPE:
             self.fechar_zoom()
@@ -542,8 +888,8 @@ class Jogo:
             self._clicar_maquina(evento.pos)
         elif self.tela_ampliada_atual == "gaveta":
             self._clicar_gaveta(evento.pos)
-        elif self.tela_ampliada_atual == "chatbot":
-            self._clicar_chatbot(evento.pos)
+        elif self.tela_ampliada_atual == "configuracoes":
+            self._clicar_configuracoes(evento.pos)
 
     def _clicar_painel(self, pos):
         for modo, rect in self.painel_rects_modo.items():
@@ -593,10 +939,14 @@ class Jogo:
         if self.estado["tabulacao_concluida"] and self.estado["config_correta"]:
             if self.maquina_botao_compartimento.collidepoint(pos):
                 self.estado["peca_liberada"] = True
+                self._adicionar_item_inventario(
+                    "Peça da Máquina do Tempo",
+                    self.img_cartoes_inventario,
+                    "Obtida ao concluir a tabulação corretamente.",
+                )
                 self.abrir_zoom("recompensa")
 
     def _clicar_gaveta(self, pos):
-        # Gaveta ainda trancada: interagimos só com o cadeado.
         if not self.estado["gaveta_destrancada"]:
             for i, rect in enumerate(self.gaveta_setas_cima):
                 if rect.collidepoint(pos):
@@ -615,30 +965,183 @@ class Jogo:
                     self.gaveta_mensagem = "Combinação errada. Pense na pista do chatbot."
             return
 
-        # Gaveta destrancada mas ainda fechada: qualquer clique fora do
-        # botão de fechar já abre a gaveta.
         if not self.estado["gaveta_aberta"]:
             self.estado["gaveta_aberta"] = True
             self.gaveta_mensagem = "Gaveta aberta. Pegue os cartões perfurados."
             return
 
-        # Gaveta aberta: clicar nos cartões coleta o item.
         if not self.estado["cartoes_coletados"] and self.gaveta_area_cartoes.collidepoint(pos):
             self.estado["cartoes_coletados"] = True
+            self._adicionar_item_inventario(
+                "Cartões perfurados",
+                self.img_cartoes_inventario,
+                "Usados para configurar a máquina de tabulação.",
+            )
             self.gaveta_mensagem = "Cartões perfurados coletados! Já podem ser usados na máquina."
             self.maquina_mensagem = "Cartões prontos. Configure o painel e pressione Iniciar."
 
-    def _clicar_chatbot(self, pos):
-        if self.chatbot_botao_avancar.collidepoint(pos):
-            if self.chatbot_indice_mensagem < len(CONVERSA_CHATBOT) - 1:
-                self.chatbot_indice_mensagem += 1
-            else:
-                self.fechar_zoom()
+    # =================================================================
+    # CHAT COM O PROFESSOR HERMANN (Ollama)
+    # =================================================================
+    def _abrir_chat_npc(self):
+        self.chat_ativo = True
+        self.chat_input = ""
+        self._tocar_click()
+
+    def _fechar_chat_npc(self):
+        self.chat_ativo = False
+        self.chat_input = ""
+
+    def _processar_evento_chat(self, evento):
+        if evento.type == pygame.TEXTINPUT:
+            if len(self.chat_input) < 200:
+                self.chat_input += evento.text
+            return
+
+        if evento.type != pygame.KEYDOWN:
+            return
+
+        if evento.key == pygame.K_ESCAPE:
+            self._fechar_chat_npc()
+            return
+
+        if evento.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            self._enviar_pergunta_ao_professor()
+            return
+
+        if evento.key == pygame.K_BACKSPACE:
+            self.chat_input = self.chat_input[:-1]
+            return
+
+    def _construir_prompt_sistema(self):
+        """Monta o prompt do Hermann com uma dica sobre o passo atual
+        da missão, seguindo a ordem real de resolução dos enigmas."""
+        if not self.estado["documento_objetivo_lido"]:
+            passo_atual = (
+                "O cientista ainda não leu o documento que explica o "
+                "objetivo da missão. Dê a dica de que esse documento "
+                "está escondido entre os livros da prateleira da sala, "
+                "sem dizer exatamente qual livro."
+            )
+        elif not self.estado["gaveta_destrancada"]:
+            passo_atual = (
+                "O cientista precisa destrancar a gaveta da escrivaninha, "
+                "fechada com um cadeado de dois dígitos. Dê apenas a "
+                "pista de que a combinação tem a ver com 'quantas horas "
+                "tem um dia inteiro', sem falar o número diretamente."
+            )
+        elif not self.estado["cartoes_coletados"]:
+            passo_atual = (
+                "A gaveta já está destrancada. Incentive o cientista a "
+                "abri-la e pegar os cartões perfurados guardados nela."
+            )
+        elif not self.estado["painel_configurado"] or not self.estado["config_correta"]:
+            passo_atual = (
+                "O cientista precisa configurar o painel da máquina para "
+                "contar apenas 'trabalhadores adultos'. Não diga o modo "
+                "nem as colunas certas; apenas lembre que ele deve ligar "
+                "a missão (contar trabalhadores adultos) às colunas do "
+                "documento que já leu."
+            )
+        elif not self.estado["gaveta_destrancada"]:
+            passo_atual = (
+                "O cientista precisa destrancar a gaveta da escrivaninha, "
+                "fechada com um cadeado numerico de dois digitos (0 a 9 "
+                "cada). Nao existe nenhuma etiqueta, nota ou pista escrita "
+                "na gaveta ou na sala — a unica pista que voce pode dar e "
+                "verbal: a combinacao tem a ver com 'quantas horas tem um "
+                "dia inteiro'. Nao invente objetos que nao foram citados "
+                "aqui. Nao diga o numero diretamente."
+            )
+        else:
+            passo_atual = (
+                "O cientista já concluiu a tabulação corretamente. "
+                "Parabenize-o pelo trabalho."
+            )
+
+        return PROMPT_SISTEMA_HERMANN + " Passo atual da missão: " + passo_atual
+
+    def _enviar_pergunta_ao_professor(self):
+        pergunta = self.chat_input.strip()
+        if not pergunta or self.chat_carregando:
+            return
+
+        self.chat_historico.append(("jogador", pergunta))
+        self.chat_input = ""
+        self.chat_carregando = True
+
+        prompt_sistema = self._construir_prompt_sistema()
+        thread = threading.Thread(
+            target=self._consultar_ollama, args=(pergunta, prompt_sistema), daemon=True
+        )
+        thread.start()
+
+    def _consultar_ollama(self, pergunta, prompt_sistema):
+        mensagens = [{"role": "system", "content": prompt_sistema}]
+
+        for autor, texto in self.chat_historico[-6:]:
+            papel = "user" if autor == "jogador" else "assistant"
+            mensagens.append({"role": papel, "content": texto})
+
+        payload = {
+            "model": OLLAMA_MODELO,
+            "messages": mensagens,
+            "stream": False,
+            "options": {
+                "temperature": 0.4,
+                "num_predict": 100,
+            },
+        }
+        dados = json.dumps(payload).encode("utf-8")
+        requisicao = urllib.request.Request(
+            OLLAMA_URL, data=dados, headers={"Content-Type": "application/json"}
+        )
+
+        try:
+            with urllib.request.urlopen(requisicao, timeout=OLLAMA_TIMEOUT_SEGUNDOS) as resposta:
+                corpo = json.loads(resposta.read().decode("utf-8"))
+                texto_resposta = corpo.get("message", {}).get("content", "").strip()
+                if not texto_resposta:
+                    texto_resposta = (
+                        "Hmm, minhas ideias fugiram por um instante. "
+                        "Pode repetir a pergunta?"
+                    )
+        except Exception as e:
+            print(f"[ERRO OLLAMA] {type(e).__name__}: {e}")
+            texto_resposta = (
+                "(Nao consegui falar com o Professor Hermann agora — "
+                "verifique se o Ollama esta rodando com o modelo "
+                f"'{OLLAMA_MODELO}' instalado.)"
+            )
+        self.chat_resposta_queue.put(texto_resposta)
 
     # =================================================================
     # ATUALIZAR
     # =================================================================
     def atualizar(self):
+        if self.fase == "intro":
+            return
+
+        if self.fase == "final":
+            self._atualizar_final()
+            return
+
+        if self.fase == "tempo_esgotado":
+            return
+
+        if self._tempo_restante_ms() <= 0:
+            self.tempo_esgotado = True
+            self.fase = "tempo_esgotado"
+            return
+
+        try:
+            resposta = self.chat_resposta_queue.get_nowait()
+        except queue.Empty:
+            pass
+        else:
+            self.chat_historico.append(("hermann", resposta))
+            self.chat_carregando = False
+
         if self.maquina_processando:
             agora = pygame.time.get_ticks()
             if agora - self.maquina_processamento_inicio >= DURACAO_PROCESSAMENTO_MS:
@@ -652,12 +1155,11 @@ class Jogo:
                     self.maquina_mensagem = (
                         "Resultado inconsistente. Reconfigure o painel e tente novamente."
                     )
-                    # Força o jogador a reconfigurar o painel
                     self.estado["painel_configurado"] = False
                     self.estado["tabulacao_concluida"] = False
 
-        if self.tela_ampliada_atual is not None:
-            return  # jogador não anda com o zoom aberto
+        if self.tela_ampliada_atual is not None or self.chat_ativo:
+            return
 
         teclas = pygame.key.get_pressed()
         limites = self.tela.get_rect()
@@ -667,6 +1169,21 @@ class Jogo:
     # DESENHAR
     # =================================================================
     def desenhar(self):
+        if self.fase == "intro":
+            self._desenhar_intro()
+            pygame.display.update()
+            return
+
+        if self.fase == "final":
+            self._desenhar_final()
+            pygame.display.update()
+            return
+
+        if self.fase == "tempo_esgotado":
+            self._desenhar_tempo_esgotado()
+            pygame.display.update()
+            return
+
         self.tela.blit(self.fundo, (0, 0))
 
         for img, pos in self.decoracao:
@@ -678,16 +1195,16 @@ class Jogo:
             if obj.get("desenhar", True):
                 self.tela.blit(obj["img"], obj["pos"])
 
-        # A gaveta em si é invisível (sua hitbox só marca a área de
-        # interação); os cartões perfurados aparecem visualmente dentro
-        # dela assim que é aberta, até serem coletados pelo jogador.
         if self.estado["gaveta_aberta"] and not self.estado["cartoes_coletados"]:
             self.tela.blit(self.img_cartoes_mundo, self.cartoes_mundo_pos)
 
         self.jogador.desenhar(self.tela)
 
-        if self.tela_ampliada_atual is None:
+        if self.tela_ampliada_atual is None and not self.chat_ativo:
             self._desenhar_dica_interacao()
+
+        if self.chat_ativo:
+            self._desenhar_chat_npc()
 
         if self.tela_ampliada_atual is not None:
             self._desenhar_moldura_zoom()
@@ -714,25 +1231,32 @@ class Jogo:
                 self._desenhar_maquina()
             elif self.tela_ampliada_atual == "gaveta":
                 self._desenhar_gaveta()
-            elif self.tela_ampliada_atual == "chatbot":
-                self._desenhar_chatbot()
+            elif self.tela_ampliada_atual == "inventario":
+                self._desenhar_inventario()
             elif self.tela_ampliada_atual == "recompensa":
                 self._desenhar_recompensa()
+            elif self.tela_ampliada_atual == "configuracoes":
+                self._desenhar_configuracoes()
+
+        self._desenhar_cronometro()
 
         pygame.display.update()
 
     def _desenhar_dica_interacao(self):
-        """Mostra um aviso 'Aperte E' acima do objeto do cenário mais
-        próximo do jogador, quando ele estiver ao alcance."""
         objeto_proximo = self._objeto_interativo_proximo()
-        if objeto_proximo is None:
+        if objeto_proximo is not None:
+            rect_referencia = objeto_proximo["img"].get_rect(topleft=objeto_proximo["pos"])
+            texto_dica = "Aperte E"
+        elif self._npc_proximo():
+            rect_referencia = self.npc_rect
+            texto_dica = "Aperte E para conversar"
+        else:
             return
 
-        rect = objeto_proximo["img"].get_rect(topleft=objeto_proximo["pos"])
-        centro_x = rect.centerx
-        topo_y = rect.top - 14
+        centro_x = rect_referencia.centerx
+        topo_y = rect_referencia.top - 14
 
-        texto = self.font_pequena.render("Aperte E", True, BRANCO)
+        texto = self.font_pequena.render(texto_dica, True, BRANCO)
         largura_balao = texto.get_width() + 20
         balao = pygame.Rect(0, 0, largura_balao, 26)
         balao.center = (centro_x, max(topo_y, 20))
@@ -742,6 +1266,55 @@ class Jogo:
         self.tela.blit(overlay, balao.topleft)
         pygame.draw.rect(self.tela, BRANCO, balao, width=1, border_radius=6)
         self.tela.blit(texto, texto.get_rect(center=balao.center))
+
+    def _desenhar_chat_npc(self):
+        largura_caixa = 460
+        linhas_renderizadas = []
+
+        historico_visivel = self.chat_historico[-CHAT_HISTORICO_VISIVEL:]
+        for autor, texto in historico_visivel:
+            prefixo = "Voce: " if autor == "jogador" else "Prof. Hermann: "
+            cor = (200, 220, 255) if autor == "jogador" else BRANCO
+            for linha in quebrar_texto(prefixo + texto, self.font_pequena, largura_caixa - 30):
+                linhas_renderizadas.append((linha, cor))
+
+        if self.chat_carregando:
+            linhas_renderizadas.append(("Prof. Hermann esta pensando...", (210, 200, 150)))
+
+        altura_historico = len(linhas_renderizadas) * 20
+        altura_caixa = 100 + altura_historico
+
+        caixa = pygame.Rect(0, 0, largura_caixa, altura_caixa)
+        caixa.centerx = self.npc_rect.centerx
+
+        topo_desejado = self.npc_rect.top - 10 - altura_caixa
+        caixa.top = max(10, topo_desejado)
+        caixa.left = max(10, min(caixa.left, LARGURA - largura_caixa - 10))
+
+        overlay = pygame.Surface(caixa.size, pygame.SRCALPHA)
+        overlay.fill((20, 20, 25, 225))
+        self.tela.blit(overlay, caixa.topleft)
+        pygame.draw.rect(self.tela, BRANCO, caixa, width=2, border_radius=10)
+
+        titulo = self.font_texto.render("Professor Hermann", True, (255, 210, 120))
+        self.tela.blit(titulo, (caixa.left + 15, caixa.top + 10))
+
+        y = caixa.top + 38
+        for linha, cor in linhas_renderizadas:
+            render = self.font_pequena.render(linha, True, cor)
+            self.tela.blit(render, (caixa.left + 15, y))
+            y += 20
+
+        campo_input = pygame.Rect(caixa.left + 15, caixa.bottom - 55, caixa.width - 30, 28)
+        pygame.draw.rect(self.tela, (250, 250, 250), campo_input, border_radius=4)
+        pygame.draw.rect(self.tela, (100, 100, 100), campo_input, width=1, border_radius=4)
+
+        cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else ""
+        texto_input = self.font_pequena.render(self.chat_input + cursor, True, (20, 20, 20))
+        self.tela.blit(texto_input, (campo_input.left + 8, campo_input.top + 6))
+
+        dica = self.font_pequena.render("Enter: enviar   |   ESC: sair", True, (200, 200, 200))
+        self.tela.blit(dica, (caixa.left + 15, caixa.bottom - 22))
 
     def _desenhar_moldura_zoom(self):
         overlay = pygame.Surface((LARGURA, ALTURA), pygame.SRCALPHA)
@@ -851,7 +1424,6 @@ class Jogo:
         self.tela.blit(titulo, (self.zoom_rect.left + 40, self.zoom_rect.top + 30))
 
         if not self.estado["gaveta_destrancada"]:
-            # Cadeado com 2 discos
             for i, rect in enumerate(self.gaveta_rects_disco):
                 pygame.draw.rect(self.tela, (60, 60, 60), rect, border_radius=8)
                 pygame.draw.rect(self.tela, BRANCO, rect, width=2, border_radius=8)
@@ -873,43 +1445,49 @@ class Jogo:
             self.tela.blit(texto_testar, texto_testar.get_rect(center=self.gaveta_botao_testar.center))
 
         elif self.estado["gaveta_aberta"] and not self.estado["cartoes_coletados"]:
-            pygame.draw.rect(self.tela, (90, 70, 40), self.gaveta_area_cartoes, border_radius=6)
+            self.tela.blit(self.img_cartoes_zoom, self.gaveta_area_cartoes)
             pygame.draw.rect(self.tela, BRANCO, self.gaveta_area_cartoes, width=2, border_radius=6)
-            texto_cartoes = self.font_texto.render("Cartões (clique para pegar)", True, BRANCO)
-            self.tela.blit(texto_cartoes, texto_cartoes.get_rect(center=self.gaveta_area_cartoes.center))
-
+            texto_cartoes = self.font_texto.render("Clique para pegar", True, BRANCO)
+            self.tela.blit(texto_cartoes, (self.gaveta_area_cartoes.left, self.gaveta_area_cartoes.bottom + 5))
         for i, linha in enumerate(quebrar_texto(self.gaveta_mensagem, self.font_pequena, self.zoom_rect.width - 80)):
             msg = self.font_pequena.render(linha, True, BRANCO)
             self.tela.blit(msg, (self.zoom_rect.left + 40, self.zoom_rect.bottom - 40 + i * 20))
 
-    def _desenhar_chatbot(self):
-        self.tela.blit(self.img_chatbot_fundo, self.zoom_rect)
+    def _desenhar_inventario(self):
+        # Fundo simples (não há arte dedicada para o inventário).
+        pygame.draw.rect(self.tela, (35, 33, 38), self.zoom_rect)
 
-        titulo = self.font_titulo.render("Chatbot", True, BRANCO)
-        self.tela.blit(titulo, (self.zoom_rect.left + 40, self.zoom_rect.top + 30))
+        titulo = self.font_titulo.render("Inventário", True, BRANCO)
+        self.tela.blit(titulo, (self.zoom_rect.left + 40, self.zoom_rect.top + 35))
 
-        autor, texto = CONVERSA_CHATBOT[self.chatbot_indice_mensagem]
-        caixa_texto = pygame.Rect(
-            self.zoom_rect.left + 30, self.zoom_rect.top + 90, self.zoom_rect.width - 60, 260
-        )
-        pygame.draw.rect(self.tela, (40, 40, 40), caixa_texto, border_radius=10)
-        pygame.draw.rect(self.tela, BRANCO, caixa_texto, width=1, border_radius=10)
+        if not self.itens_inventario:
+            vazio = self.font_texto.render("Nenhum item coletado ainda.", True, (200, 200, 200))
+            self.tela.blit(vazio, (self.zoom_rect.left + 40, self.zoom_rect.top + 100))
+            return
 
-        y = caixa_texto.top + 16
-        for linha in quebrar_texto(texto, self.font_texto, caixa_texto.width - 30):
-            render = self.font_texto.render(linha, True, BRANCO)
-            self.tela.blit(render, (caixa_texto.left + 15, y))
-            y += 28
+        y = self.zoom_rect.top + 90
+        largura_slot = self.zoom_rect.width - 80
+        altura_slot = 64
+        espaco = 12
 
-        contador = self.font_pequena.render(
-            f"{self.chatbot_indice_mensagem + 1}/{len(CONVERSA_CHATBOT)}", True, BRANCO
-        )
-        self.tela.blit(contador, (self.zoom_rect.left + 40, self.chatbot_botao_avancar.top + 10))
+        for item in self.itens_inventario:
+            slot = pygame.Rect(self.zoom_rect.left + 40, y, largura_slot, altura_slot)
+            pygame.draw.rect(self.tela, (55, 55, 60), slot, border_radius=8)
+            pygame.draw.rect(self.tela, BRANCO, slot, width=1, border_radius=8)
 
-        pygame.draw.rect(self.tela, AZUL, self.chatbot_botao_avancar, border_radius=6)
-        ultima = self.chatbot_indice_mensagem == len(CONVERSA_CHATBOT) - 1
-        texto_botao = self.font_texto.render("Fechar" if ultima else "Avançar", True, BRANCO)
-        self.tela.blit(texto_botao, texto_botao.get_rect(center=self.chatbot_botao_avancar.center))
+            icone = pygame.transform.scale(item["icone"], (48, 48))
+            self.tela.blit(icone, (slot.left + 8, slot.top + 8))
+
+            nome_render = self.font_texto.render(item["nome"], True, BRANCO)
+            self.tela.blit(nome_render, (slot.left + 68, slot.top + 8))
+
+            if item["descricao"]:
+                desc_render = self.font_pequena.render(item["descricao"], True, (200, 200, 200))
+                self.tela.blit(desc_render, (slot.left + 68, slot.top + 34))
+
+            y += altura_slot + espaco
+            if y > self.zoom_rect.bottom - altura_slot:
+                break
 
     def _desenhar_recompensa(self):
         self.tela.blit(self.img_recompensa, self.zoom_rect)
@@ -927,7 +1505,6 @@ class Jogo:
         )
         self.tela.blit(subtitulo, (caixa_texto.left + 15, caixa_texto.top + 50))
 
-    # =================================================================
     def rodar(self):
         while self.rodando:
             self.processar_eventos()
