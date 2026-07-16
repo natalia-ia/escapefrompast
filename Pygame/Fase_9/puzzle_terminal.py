@@ -59,6 +59,8 @@ embaixo -- a lógica (EstadoPuzzleTerminal, run()) não precisa mudar.
 =====================================================================
 """
 
+import json
+import os
 import random
 
 import pygame
@@ -80,6 +82,51 @@ import config_fase9
 import desktop_final
 
 FPS = 60
+
+# ---------------------------------------------------------------------------
+# Progresso compartilhado (Pygame/progresso.json) -- MESMO arquivo/formato
+# usado pela Fase 2 (ver Pygame/Fase_2/fase2/puzzles/babbage_lovelace.py):
+# um dicionário por fase, {"estrelas": 1-3, "completo": true, "tempo":
+# "MM:SS"}, pra não um sobrescrever o progresso do outro nem o mapa de
+# fases do menu (quando for ler isso) precisar de dois formatos
+# diferentes.
+#
+# TODO (pra quem conectar o mapa de fases do menu depois): menu/jogo.py
+# ainda não lê esse arquivo -- ver o mesmo TODO em babbage_lovelace.py.
+# ---------------------------------------------------------------------------
+_PYGAME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROGRESSO_PATH = os.path.join(_PYGAME_DIR, "progresso.json")
+PROGRESSO_CHAVE_FASE = "fase_9"
+
+
+def _carregar_progresso():
+    """Lê Pygame/progresso.json inteiro (de todas as fases). Devolve um
+    dicionário vazio se o arquivo ainda não existir ou vier corrompido --
+    assim a gente nunca trava tentando salvar só porque o arquivo está
+    ausente ou malformado."""
+    if not os.path.exists(PROGRESSO_PATH):
+        return {}
+    try:
+        with open(PROGRESSO_PATH, "r", encoding="utf-8") as arquivo:
+            return json.load(arquivo)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _salvar_progresso(estrelas, tempo_formatado):
+    """Grava `estrelas` (1 a 3, ver _calcular_estrelas) e `tempo_formatado`
+    ("MM:SS", o tempo que o jogador LEVOU) na chave PROGRESSO_CHAVE_FASE do
+    progresso.json compartilhado, preservando as chaves de outras fases
+    (ex: "fase_2") que já estiverem lá. Nunca sobrescreve um resultado
+    MELHOR já salvo -- se o jogador já tinha completado essa fase antes
+    com estrelas >= as de agora, não mexe em nada."""
+    progresso = _carregar_progresso()
+    anterior = progresso.get(PROGRESSO_CHAVE_FASE)
+    if anterior is not None and anterior.get("estrelas", 0) >= estrelas:
+        return
+    progresso[PROGRESSO_CHAVE_FASE] = {"estrelas": estrelas, "completo": True, "tempo": tempo_formatado}
+    with open(PROGRESSO_PATH, "w", encoding="utf-8") as arquivo:
+        json.dump(progresso, arquivo, indent=2, ensure_ascii=False)
 
 # ---------------------------------------------------------------------------
 # Efeitos sonoros do puzzle -- carregados uma única vez, na primeira vez
@@ -239,6 +286,37 @@ TEMPO_LIMITE_SEGUNDOS = 50       # fixo -- não depende do valor da Fase 2
 TEMPO_ALERTA_SEGUNDOS = 30       # últimos 30s: cronômetro fica em alerta
 COR_TEMPO_ALERTA = COR_AMBAR_ALERTA  # âmbar mais intenso (ver estilo_crt.py) em vez de vermelho puro, pra continuar na paleta monocromática
 
+# ---------------------------------------------------------------------------
+# Sistema de estrelas -- baseado no TEMPO RESTANTE no timer no instante em
+# que o jogador resolve a etapa WIMP (a 3ª e última etapa do puzzle, ver
+# EstadoPuzzleTerminal.ativar_elemento_wimp). MESMOS limiares da Fase 2
+# (ver Pygame/Fase_2/fase2/puzzles/babbage_lovelace.py), pra estrela
+# significar a mesma coisa nas duas fases. Ajuste aqui se quiser mudar os
+# limiares.
+# ---------------------------------------------------------------------------
+ESTRELAS_3_TEMPO_MIN = 25  # >= 25s sobrando -> 3 estrelas
+ESTRELAS_2_TEMPO_MIN = 15  # 15 a 24s sobrando -> 2 estrelas
+# < 15s sobrando -> 1 estrela (ver _calcular_estrelas)
+
+
+def _calcular_estrelas(tempo_restante):
+    """Devolve 1, 2 ou 3 conforme `tempo_restante` (segundos ainda no
+    timer quando o jogador concluiu a etapa WIMP) contra os limiares
+    ESTRELAS_3_TEMPO_MIN/ESTRELAS_2_TEMPO_MIN acima."""
+    if tempo_restante >= ESTRELAS_3_TEMPO_MIN:
+        return 3
+    if tempo_restante >= ESTRELAS_2_TEMPO_MIN:
+        return 2
+    return 1
+
+
+def _formatar_tempo(segundos):
+    """Formata `segundos` (float) como "MM:SS" -- usado tanto pro tempo
+    GASTO na vitória quanto pra qualquer outro cronômetro exibido."""
+    total = max(0, int(segundos))
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
 FALHA_TITULO = "TENTE NOVAMENTE"
 FALHA_TEXTO = (
     "O tempo acabou antes de você reconstruir o sistema. O terminal "
@@ -309,6 +387,13 @@ class EstadoPuzzleTerminal:
         # que o WIMP já foi concluído -- ver o guard em
         # atualizar_tempo()).
         self.no_desktop_final = False
+        # Resultado (estrelas + tempo) da resolução -- só ganham valor no
+        # momento exato em que a etapa WIMP é concluída (ver
+        # ativar_elemento_wimp mais abaixo). fase9.py lê os dois pra
+        # desenhar a tela de vitória. Fora de reiniciar() de propósito,
+        # mesmo espírito de no_desktop_final logo acima.
+        self.estrelas_conquistadas = None
+        self.tempo_formatado = None
         self.reiniciar()
 
     def reiniciar(self):
@@ -1118,6 +1203,18 @@ def run(tela, relogio, npc_chat, estado, largura, altura):
         # o jogador nunca chegaria a ver o texto "Desktop gráfico
         # ativado!" antes da tela mudar).
         if estado.concluido and not estado.no_desktop_final:
+            # Calcula e salva o resultado final (estrelas + tempo) só
+            # aqui, no momento exato em que a etapa WIMP é dada como
+            # concluída. estado.tempo_restante já está "congelado" desde
+            # que concluido virou True (atualizar_tempo() para de
+            # decrementar assim que concluido/derrotado), então o valor
+            # aqui é exatamente o tempo que sobrava quando o jogador
+            # terminou.
+            estado.estrelas_conquistadas = _calcular_estrelas(estado.tempo_restante)
+            tempo_gasto = TEMPO_LIMITE_SEGUNDOS - estado.tempo_restante
+            estado.tempo_formatado = _formatar_tempo(tempo_gasto)
+            _salvar_progresso(estado.estrelas_conquistadas, estado.tempo_formatado)
+
             audio_fase9.tocar_som(_som_computador_ligando)
             _animar_tela_acendendo(tela, relogio, largura, altura)
             estado.no_desktop_final = True

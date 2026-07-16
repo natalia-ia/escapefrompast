@@ -101,6 +101,8 @@ PASTA_DISCO = {
 MSG_CODIGO_ERRADO = "Código inválido. Verifique os arquivos do sistema."
 MSG_CODIGO_CERTO = "Código aceito! Ativando a máquina do tempo..."
 
+DICA_EXPLORAR = "Explore o sistema para encontrar o código de ativação."
+
 # =====================================================================
 # 2. VISUAL -- mesma paleta "GEM/Xerox Star" (clara, barra de título
 # azul) já usada em puzzle_terminal.desenhar_desktop_retro -- cópia
@@ -121,6 +123,7 @@ DESKTOP_ICONE_ARQUIVO_COR = (150, 165, 200)
 DESKTOP_CAMPO_FUNDO = (255, 255, 255)
 DESKTOP_FEEDBACK_OK = (20, 120, 20)
 DESKTOP_FEEDBACK_ERRO = (170, 20, 20)
+DESKTOP_DICA_RODAPE = (95, 100, 115)  # cor apagada, só pra guiar sem poluir (ver DICA_EXPLORAR)
 
 ITENS_BARRA_MENU = ["Arquivo", "Editar", "Exibir", "Ajuda"]
 MENUS_DROPDOWN = {"Arquivo": MENU_ARQUIVO, "Editar": MENU_EDITAR, "Exibir": MENU_EXIBIR}
@@ -595,7 +598,12 @@ def run(tela, relogio, npc_chat, largura, altura, som_clique, som_sucesso, som_e
         # barra de menu real, sempre no topo de tudo o mais).
         npc_chat.desenhar_contador_dicas(tela, fonte_rotulo_icone)
         if not npc_chat.dialogo_aberto:
-            npc_chat.desenhar_dica_interacao(tela, fonte_rotulo_icone)
+            # canto inferior esquerdo (pos_override) -- o padrão (ancorado
+            # no rect_npc) ficaria por cima dos ícones LIXEIRA/DISCO, que
+            # moram no canto oposto (ver icone_disco_pos/icone_lixeira_pos).
+            npc_chat.desenhar_dica_interacao(tela, fonte_rotulo_icone, pos_override=(110, altura - 34))
+            dica_rodape_surf = fonte_rotulo_icone.render(DICA_EXPLORAR, True, DESKTOP_DICA_RODAPE)
+            tela.blit(dica_rodape_surf, dica_rodape_surf.get_rect(midbottom=(largura // 2, altura - 6)))
         npc_chat.desenhar(tela, fonte_texto, fonte_rotulo_icone, largura, altura)
 
         # barra de menu por cima de tudo (mesmo espírito de uma barra de
