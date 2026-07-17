@@ -113,6 +113,9 @@ PASTAS_PERSONAGEM = [ASSETS["pasta_personagem_1"], ASSETS["pasta_personagem_2"]]
 # estado de uma visita específica à fase).
 # ---------------------------------------------------------------------------
 _fonte_aviso = pygame.font.SysFont("consolas", 16)
+# Fonte menor pro aviso de "FALTA" dentro da caixinha do personagem (120px de
+# largura -- estreita demais pra usar _fonte_aviso sem estourar).
+_fonte_aviso_personagem = pygame.font.SysFont("consolas", 11)
 
 
 def carregar_imagem(caminho, tamanho=None, com_alpha=True):
@@ -298,14 +301,38 @@ def _executar_fase10(character_name, genero):
 
     def carregar_imagem_personagem(nome_arquivo, fator_escala):
         """Carrega uma pose do personagem aplicando o fator de escala. Se faltar
-        o arquivo, devolve um retângulo simples pra não travar o jogo."""
+        o arquivo, devolve um retângulo com o nome do arquivo escrito (mesmo
+        espírito de diagnóstico de carregar_imagem() lá em cima) em vez de um
+        retângulo mudo, pra dar pra ver na hora qual arquivo está faltando."""
         try:
             imagem = pygame.image.load(pasta_personagem + nome_arquivo).convert_alpha()
             largura, altura = imagem.get_size()
             return pygame.transform.scale(imagem, (round(largura * fator_escala), round(altura * fator_escala)))
         except Exception:
-            ph = pygame.Surface((120, ALTURA_PERSONAGEM_ALVO), pygame.SRCALPHA)
+            largura_ph, altura_ph = 120, ALTURA_PERSONAGEM_ALVO
+            ph = pygame.Surface((largura_ph, altura_ph), pygame.SRCALPHA)
             ph.fill((120, 90, 200))
+            pygame.draw.rect(ph, (200, 80, 120), ph.get_rect(), width=3)
+
+            # A caixa é estreita (120px) demais pra escrever o nome numa
+            # linha só -- quebra em várias linhas curtas, palavra por
+            # palavra (usando "_"/"." como separador), centralizadas.
+            palavras = nome_arquivo.replace(".", "_").split("_")
+            linhas, linha_atual = [], "FALTA:"
+            for palavra in palavras:
+                testada = (linha_atual + " " + palavra).strip()
+                if _fonte_aviso_personagem.size(testada)[0] <= largura_ph - 8:
+                    linha_atual = testada
+                else:
+                    linhas.append(linha_atual)
+                    linha_atual = palavra
+            linhas.append(linha_atual)
+
+            y = altura_ph // 2 - (len(linhas) * 14) // 2
+            for linha in linhas:
+                texto = _fonte_aviso_personagem.render(linha, True, (255, 220, 220))
+                ph.blit(texto, texto.get_rect(centerx=largura_ph // 2, y=y))
+                y += 14
             return ph
 
     imagem_parado = carregar_imagem_personagem("personagem_parado_frente.png", FATOR_ESCALA_PERSONAGEM)
