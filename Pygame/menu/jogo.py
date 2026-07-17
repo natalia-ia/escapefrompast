@@ -631,17 +631,25 @@ class Game:
                     _iniciar_musica_menu()
                     self.build_buttons()
                 elif index == 2:
-                    # Fase_3/fase_3.py: já vinha com uma classe Jogo
-                    # própria (rodar(), não executar()) -- só precisou
-                    # aceitar character_image/character_name/genero e
-                    # devolver "vitoria"/None em vez de nunca devolver
-                    # nada (ver Pygame/Fase_3/fase_3.py, Jogo.rodar()).
-                    fase3 = _importar_ponto_de_entrada(_FASE3_DIR, "fase_3")
-                    resultado = fase3.Jogo(
+                    # Fase_3/fase_3.py: a colega reescreveu a fase do zero
+                    # (era um puzzle simples com Jogo.rodar(); agora é a
+                    # era de Hollerith, com Jogo.executar()) e a pasta
+                    # ganhou seu próprio npc_chatbot.py/inventario.py/
+                    # audio_fase5.py/config_fase5.py -- mesmos nomes que
+                    # Fase_4/Fase_5/Fase_7/Fase_8 usam, então precisa do
+                    # mesmo cuidado de purgar o cache antes de importar
+                    # (ver _importar_ponto_de_entrada). Já tem sistema de
+                    # estrelas próprio (PROGRESSO_CHAVE_FASE = "fase_3").
+                    modulo3 = _importar_ponto_de_entrada(
+                        _FASE3_DIR, "fase_3", "npc_chatbot", "inventario",
+                        "audio_fase5", "config_fase5",
+                    )
+                    resultado = modulo3.Jogo(
                         character_image=CHARACTER_IMAGES.get(self.personagem_index),
                         character_name=self.get_personagem_name(self.personagem_index),
                         genero="m" if self.personagem_index == 0 else "f",
-                    ).rodar()
+                    ).executar()
+                    _importar_ponto_de_entrada(_FASE3_DIR, "audio_fase5").parar_tudo()
                     if resultado == "vitoria":
                         _marcar_fase_completa("fase_3")
                     pygame.display.set_caption("Escape.from_past()")

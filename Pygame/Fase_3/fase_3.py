@@ -901,9 +901,11 @@ class Jogo:
     # -----------------------------------------------------------------
     def executar(self):
         rodando = True
+        saiu_por_fechar_janela = False
         while rodando:
             for evento in pygame.event.get():
                 if evento.type == pygame.QUIT:
+                    saiu_por_fechar_janela = True
                     rodando = False
 
                 elif evento.type == pygame.KEYDOWN:
@@ -1002,8 +1004,14 @@ class Jogo:
             pygame.display.flip()
             self.relogio.tick(FPS)
 
-        pygame.quit()
-        sys.exit()
+        # Fechar a JANELA (evento QUIT) encerra o programa inteiro, igual
+        # já acontece nas outras fases. Sair pela tela de configurações
+        # ("Sair") devolve controle ao menu geral (None) em vez de matar
+        # o processo -- mesma correção aplicada em Fase_7/Fase_8.
+        if saiu_por_fechar_janela:
+            pygame.quit()
+            sys.exit()
+        return None
 
 
 # =====================================================================

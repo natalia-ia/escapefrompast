@@ -29,7 +29,17 @@ import random
 import sys
 import threading
 
-import ollama
+# O chatbot (von Neumann) depende do pacote `ollama` e de um servidor Ollama
+# rodando localmente -- nenhum dos dois é garantido na máquina de quem só
+# quer jogar. Se o import falhar (pacote não instalado), o resto da fase
+# (personagem, puzzle, porta) tem que continuar funcionando normalmente e só
+# o chat fica indisponível.
+try:
+    import ollama
+    OLLAMA_DISPONIVEL = True
+except ImportError:
+    ollama = None
+    OLLAMA_DISPONIVEL = False
 
 pygame.init()
 
@@ -607,13 +617,25 @@ def _executar_fase6(character_name, genero):
     # ---------------------------------------------------------------------------
     MODELO_VON_NEUMANN = "qwen2.5:0.5b"
     TIMEOUT_OLLAMA_SEGUNDOS = 30  # testado na prática: uma resposta levou ~16s
-    cliente_ollama = ollama.Client(timeout=TIMEOUT_OLLAMA_SEGUNDOS)
+    if OLLAMA_DISPONIVEL:
+        try:
+            cliente_ollama = ollama.Client(timeout=TIMEOUT_OLLAMA_SEGUNDOS)
+        except Exception:
+            cliente_ollama = None
+    else:
+        cliente_ollama = None
 
     def perguntar_a_von_neumann(pergunta):
         """Chama o modelo qwen2.5:0.5b (rodando localmente via Ollama) pedindo
         uma resposta como se fosse von Neumann. Roda em uma thread separada
         para não travar a janela do jogo enquanto espera a resposta chegar."""
         nonlocal resposta_von_neumann, von_neumann_pensando
+        if cliente_ollama is None:
+            # Pacote ollama não instalado ou servidor indisponível -- o resto
+            # da fase continua jogável, só o chat fica indisponível.
+            resposta_von_neumann = "Chat indisponível (Ollama não está instalado ou não está rodando)."
+            von_neumann_pensando = False
+            return
         try:
             resultado = cliente_ollama.chat(
                 model=MODELO_VON_NEUMANN,
@@ -1291,3 +1313,18 @@ def _executar_fase6(character_name, genero):
         sys.exit()
 
     return "vitoria" if vitoria_alcancada else None
+
+
+def run_padrao():
+    """Roda a Fase 6 isolada, fora do menu geral, com o Personagem 1 como
+    opção padrão (genero="m") -- útil para testar esta fase sozinha
+    (ex: `python fase_6.py`) sem precisar abrir o jogo completo nem passar
+    por nenhum menu."""
+    return Jogo(character_name="Jogador", genero="m").executar()
+
+
+# =====================================================================
+# PONTO DE ENTRADA DO PROGRAMA (rodando este arquivo sozinho)
+# =====================================================================
+if __name__ == "__main__":
+    run_padrao()

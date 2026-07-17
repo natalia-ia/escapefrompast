@@ -32,7 +32,17 @@ import random
 import sys
 import threading
 
-import ollama
+# O chatbot (Tim Berners-Lee) depende do pacote `ollama` e de um servidor
+# Ollama rodando localmente -- nenhum dos dois é garantido na máquina de
+# quem só quer jogar. Se o import falhar (pacote não instalado), o resto da
+# fase (personagem, puzzle, porta) tem que continuar funcionando normalmente
+# e só o chat fica indisponível.
+try:
+    import ollama
+    OLLAMA_DISPONIVEL = True
+except ImportError:
+    ollama = None
+    OLLAMA_DISPONIVEL = False
 
 pygame.init()
 
@@ -103,6 +113,9 @@ PASTAS_PERSONAGEM = [ASSETS["pasta_personagem_1"], ASSETS["pasta_personagem_2"]]
 # estado de uma visita específica à fase).
 # ---------------------------------------------------------------------------
 _fonte_aviso = pygame.font.SysFont("consolas", 16)
+# Fonte menor pro aviso de "FALTA" dentro da caixinha do personagem (120px de
+# largura -- estreita demais pra usar _fonte_aviso sem estourar).
+_fonte_aviso_personagem = pygame.font.SysFont("consolas", 11)
 
 
 def carregar_imagem(caminho, tamanho=None, com_alpha=True):
@@ -288,14 +301,38 @@ def _executar_fase10(character_name, genero):
 
     def carregar_imagem_personagem(nome_arquivo, fator_escala):
         """Carrega uma pose do personagem aplicando o fator de escala. Se faltar
-        o arquivo, devolve um retângulo simples pra não travar o jogo."""
+        o arquivo, devolve um retângulo com o nome do arquivo escrito (mesmo
+        espírito de diagnóstico de carregar_imagem() lá em cima) em vez de um
+        retângulo mudo, pra dar pra ver na hora qual arquivo está faltando."""
         try:
             imagem = pygame.image.load(pasta_personagem + nome_arquivo).convert_alpha()
             largura, altura = imagem.get_size()
             return pygame.transform.scale(imagem, (round(largura * fator_escala), round(altura * fator_escala)))
         except Exception:
-            ph = pygame.Surface((120, ALTURA_PERSONAGEM_ALVO), pygame.SRCALPHA)
+            largura_ph, altura_ph = 120, ALTURA_PERSONAGEM_ALVO
+            ph = pygame.Surface((largura_ph, altura_ph), pygame.SRCALPHA)
             ph.fill((120, 90, 200))
+            pygame.draw.rect(ph, (200, 80, 120), ph.get_rect(), width=3)
+
+            # A caixa é estreita (120px) demais pra escrever o nome numa
+            # linha só -- quebra em várias linhas curtas, palavra por
+            # palavra (usando "_"/"." como separador), centralizadas.
+            palavras = nome_arquivo.replace(".", "_").split("_")
+            linhas, linha_atual = [], "FALTA:"
+            for palavra in palavras:
+                testada = (linha_atual + " " + palavra).strip()
+                if _fonte_aviso_personagem.size(testada)[0] <= largura_ph - 8:
+                    linha_atual = testada
+                else:
+                    linhas.append(linha_atual)
+                    linha_atual = palavra
+            linhas.append(linha_atual)
+
+            y = altura_ph // 2 - (len(linhas) * 14) // 2
+            for linha in linhas:
+                texto = _fonte_aviso_personagem.render(linha, True, (255, 220, 220))
+                ph.blit(texto, texto.get_rect(centerx=largura_ph // 2, y=y))
+                y += 14
             return ph
 
     imagem_parado = carregar_imagem_personagem("personagem_parado_frente.png", FATOR_ESCALA_PERSONAGEM)
@@ -463,13 +500,25 @@ def _executar_fase10(character_name, genero):
     # Modelo usado no Ollama (o mesmo obrigatório da Fase 1: qwen2.5:0.5b).
     MODELO_TIM = "qwen2.5:0.5b"
     TIMEOUT_OLLAMA_SEGUNDOS = 30
-    cliente_ollama = ollama.Client(timeout=TIMEOUT_OLLAMA_SEGUNDOS)
+    if OLLAMA_DISPONIVEL:
+        try:
+            cliente_ollama = ollama.Client(timeout=TIMEOUT_OLLAMA_SEGUNDOS)
+        except Exception:
+            cliente_ollama = None
+    else:
+        cliente_ollama = None
 
     def perguntar_ao_tim(pergunta):
         """Chama o modelo qwen2.5:0.5b (via Ollama, rodando localmente) pedindo
         uma resposta como se fosse o Tim. Roda em uma thread separada para não
         travar a janela do jogo enquanto espera a resposta chegar."""
         nonlocal resposta_tim, tim_pensando
+        if cliente_ollama is None:
+            # Pacote ollama não instalado ou servidor indisponível -- o resto
+            # da fase continua jogável, só o chat fica indisponível.
+            resposta_tim = "Chat indisponível (Ollama não está instalado ou não está rodando)."
+            tim_pensando = False
+            return
         try:
             resultado = cliente_ollama.chat(
                 model=MODELO_TIM,
@@ -1468,3 +1517,18 @@ def _executar_fase10(character_name, genero):
         sys.exit()
 
     return "vitoria" if vitoria_alcancada else None
+
+
+def run_padrao():
+    """Roda a Fase 10 isolada, fora do menu geral, com o Personagem 1 como
+    opção padrão (genero="m") -- útil para testar esta fase sozinha
+    (ex: `python fase_10.py`) sem precisar abrir o jogo completo nem passar
+    por nenhum menu."""
+    return Jogo(character_name="Jogador", genero="m").executar()
+
+
+# =====================================================================
+# PONTO DE ENTRADA DO PROGRAMA (rodando este arquivo sozinho)
+# =====================================================================
+if __name__ == "__main__":
+    run_padrao()
