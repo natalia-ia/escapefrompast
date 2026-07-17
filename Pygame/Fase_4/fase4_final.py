@@ -42,7 +42,6 @@ import json
 import os
 import string
 import sys
-import math
 import pygame
 from inventario import Inventario, ItemColecionavel
 from npc_chatbot import NPCChatbot
@@ -55,7 +54,7 @@ import config_fase5
 LARGURA, ALTURA = 960, 600
 FPS = 60
 
-# Tempo total da fase, em segundos (5 minutos)
+# Tempo total da fase, em segundos (8 minutos)
 TEMPO_LIMITE_SEGUNDOS = 8 * 60
 
 
@@ -841,7 +840,7 @@ class Jogo:
 
     # --- Botão "Iniciar" (muda de cor quando o mouse passa por cima) ---
         mouse_pos = pygame.mouse.get_pos()
-        cor_botao = VERDE if self.botao_iniciar.collidepoint(mouse_pos) else AMARELO_SEPIA
+        cor_botao = AZUL_TURING if self.botao_iniciar.collidepoint(mouse_pos) else AMARELO_SEPIA
 
         pygame.draw.rect(self.tela, cor_botao, self.botao_iniciar, border_radius=10)
         pygame.draw.rect(self.tela, BRANCO, self.botao_iniciar, width=2, border_radius=10)
@@ -853,7 +852,7 @@ class Jogo:
         instrucao = self.fonte_pequena.render(
         "Clique em Iniciar ou pressione ENTER", True, CINZA_CLARO,
         )
-        self.tela.blit(instrucao, instrucao.get_rect(center=(LARGURA - 270, 550)))
+        self.tela.blit(instrucao, instrucao.get_rect(center=(LARGURA - 260, 550)))
 
     # -----------------------------------------------------------------
     # TELA: CENA 1 - SALA + PERSONAGEM + MÁQUINA
@@ -1167,6 +1166,16 @@ class Jogo:
     def desenhar_vitoria(self):
         self.tela.blit(self.img_vitoria, (0, 0))
 
+         # --- Botão "Voltar ao menu" ---
+        mouse_pos = pygame.mouse.get_pos()
+        cor_botao = VERDE if self.botao_reiniciar_vitoria.collidepoint(mouse_pos) else AMARELO_SEPIA
+
+        pygame.draw.rect(self.tela, cor_botao, self.botao_reiniciar_vitoria, border_radius=10)
+        pygame.draw.rect(self.tela, BRANCO, self.botao_reiniciar_vitoria, width=2, border_radius=10)
+
+        texto_botao = self.fonte_texto.render("Voltar ao menu", True, PRETO)
+        self.tela.blit(texto_botao, texto_botao.get_rect(center=self.botao_reiniciar_vitoria.center))
+
 
 
     def desenhar_derrota(self):
@@ -1240,8 +1249,6 @@ class Jogo:
                             if enter_pressionado:
                                 self.validar_senha_capsula()
 
-                    elif self.estado in (Jogo.VITORIA, Jogo.DERROTA) and evento.key == pygame.K_r:
-                        self.reiniciar()
 
                 # --- Clique do mouse no botão do menu, na máquina, ou nos botões de reiniciar ---
                 elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:

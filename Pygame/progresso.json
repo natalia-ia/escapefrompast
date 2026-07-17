@@ -16,5 +16,28 @@
     "estrelas": 3,
     "completo": true,
     "tempo": "00:12"
+  },
+  "fase_4": {
+    "estrelas": 3,
+    "completo": true,
+    "tempo": "00:32"
+  },
+  "fase_5": {
+    "estrelas": 3,
+    "completo": true,
+    "tempo": "00:19"
+  },
+  "fase_6": {
+    "estrelas": 1,
+    "completo": true,
+    "tempo": "00:37"
+  },
+  "fase_7": {
+    "estrelas": 3,
+    "completo": true,
+    "tempo": "00:20"
+  },
+  "fase_8": {
+    "completo": true
   }
 }

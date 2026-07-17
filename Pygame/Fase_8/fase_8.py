@@ -109,7 +109,7 @@ ASSETS = {
 
     # Fundo da CENA DE DICA 1: o cartão perfurado encontrado dentro
     # do cofre (uma imagem só, sem mais nada). Sugestão: 960x600 px.
-    "fundo_cena_dica1": caminho_asset("assets/cartao_perfurado_encontrado.png"),
+    "fundo_cena_dica1": caminho_asset("assets/bilhete_encontrado.png"),
 
     # Fundo da CENA DA IMPRESSORA: close-up do painel/relatório da
     # impressora, com a sequência embaralhada por cima. 960x600 px.
@@ -493,7 +493,7 @@ class Jogo:
         )
         self.img_fundo_cena_dica1 = carregar_imagem(
             ASSETS["fundo_cena_dica1"], (LARGURA, ALTURA), (70, 60, 40),
-            "FUNDO DA CENA DE\nDICA 1 (cartão perfurado)",
+            "FUNDO DA CENA DE\nDICA 1 (bilhete)",
         )
         self.img_fundo_cena_impressora = carregar_imagem(
             ASSETS["fundo_cena_impressora"], (LARGURA, ALTURA), (50, 55, 60),
@@ -563,7 +563,7 @@ class Jogo:
 
         # --- Botões do Menu e das telas finais ---
         self.botao_iniciar = pygame.Rect(0, 0, 220, 60)
-        self.botao_iniciar.center = (LARGURA - 245, 350)
+        self.botao_iniciar.center = (LARGURA - 345, 500)
 
         self.botao_reiniciar_vitoria = pygame.Rect(0, 0, 260, 60)
         self.botao_reiniciar_vitoria.center = (LARGURA // 2, ALTURA // 2 + 120)
@@ -638,7 +638,7 @@ class Jogo:
 
         # --- Módulo de compatibilidade (arrastável, some do computador) ---
         self.rect_modulo_posicao_inicial = self.img_modulo.get_rect(
-            midtop=(self.rect_computador.centerx, self.rect_computador.bottom + 10)
+            midtop=(self.rect_computador.centerx + 110, self.rect_computador.bottom + 100)
         )
         self.rect_modulo = self.rect_modulo_posicao_inicial.copy()
         self.arrastando_modulo = False
@@ -740,7 +740,7 @@ class Jogo:
         instrucao = self.fonte_pequena.render(
             "Clique em Iniciar ou pressione ENTER", True, CINZA_CLARO,
         )
-        self.tela.blit(instrucao, instrucao.get_rect(center=(335, 500)))
+        self.tela.blit(instrucao, instrucao.get_rect(center=(LARGURA - 335, 555)))
 
     # -----------------------------------------------------------------
     # TELA: CENA 1 - ESCRITÓRIO + IMPRESSORA + NPC + SETA
@@ -852,9 +852,9 @@ class Jogo:
 
         if self.modulo_liberado and not self.modulo_entregue:
             dica = self.fonte_pequena.render(
-                "Arraste o módulo até a cápsula do tempo.", True, CINZA_CLARO,
+                "Arraste o módulo até a cápsula do tempo.", True, BRANCO,
             )
-            self.tela.blit(dica, dica.get_rect(center=(LARGURA // 2, 40)))
+            self.tela.blit(dica, dica.get_rect(center=(LARGURA // 2, 204)))
 
     def atualizar_cena3(self, teclas):
         if self.arrastando_modulo:
@@ -944,8 +944,8 @@ class Jogo:
         a Cena de Dica 1 - sem precisar de nenhum botão "confirmar"."""
         if self.cofre_senha.resolvido() and not self.papel_encontrado:
             item_papel = ItemColecionavel(
-                nome="Cartão Perfurado do System/360",
-                descricao="Um cartão perfurado guardado dentro do cofre, essencial para a impressora.",
+                nome="Bilhete do Cofre",
+                descricao="Um bilhete guardado dentro do cofre, essencial para a impressora.",
             )
             self.inventario.adicionar(item_papel)
             self.papel_encontrado = True
@@ -1116,7 +1116,7 @@ class Jogo:
         self.tela.blit(self.img_derrota, (0, 0))
 
         mouse_pos = pygame.mouse.get_pos()
-        cor_botao = VERDE if self.botao_reiniciar_derrota.collidepoint(mouse_pos) else AMARELO_SEPIA
+        cor_botao = VERMELHO if self.botao_reiniciar_derrota.collidepoint(mouse_pos) else AMARELO_SEPIA
 
         pygame.draw.rect(self.tela, cor_botao, self.botao_reiniciar_derrota, border_radius=10)
         pygame.draw.rect(self.tela, BRANCO, self.botao_reiniciar_derrota, width=2, border_radius=10)
