@@ -26,7 +26,17 @@ import random
 import sys
 import threading
 
-import ollama
+# O chatbot (Tim Berners-Lee) depende do pacote `ollama` e de um servidor
+# Ollama rodando localmente -- nenhum dos dois é garantido na máquina de
+# quem só quer jogar. Se o import falhar (pacote não instalado), o resto da
+# fase (personagem, puzzle, porta) tem que continuar funcionando normalmente
+# e só o chat fica indisponível.
+try:
+    import ollama
+    OLLAMA_DISPONIVEL = True
+except ImportError:
+    ollama = None
+    OLLAMA_DISPONIVEL = False
 
 pygame.init()
 
@@ -369,7 +379,13 @@ PROMPT_SISTEMA_TIM = (
 # Modelo usado no Ollama (o mesmo obrigatório da Fase 1: qwen2.5:0.5b).
 MODELO_TIM = "qwen2.5:0.5b"
 TIMEOUT_OLLAMA_SEGUNDOS = 30
-cliente_ollama = ollama.Client(timeout=TIMEOUT_OLLAMA_SEGUNDOS)
+if OLLAMA_DISPONIVEL:
+    try:
+        cliente_ollama = ollama.Client(timeout=TIMEOUT_OLLAMA_SEGUNDOS)
+    except Exception:
+        cliente_ollama = None
+else:
+    cliente_ollama = None
 
 
 def perguntar_ao_tim(pergunta):
@@ -377,6 +393,12 @@ def perguntar_ao_tim(pergunta):
     uma resposta como se fosse o Tim. Roda em uma thread separada para não
     travar a janela do jogo enquanto espera a resposta chegar."""
     global resposta_tim, tim_pensando
+    if cliente_ollama is None:
+        # Pacote ollama não instalado ou servidor indisponível -- o resto
+        # da fase continua jogável, só o chat fica indisponível.
+        resposta_tim = "Chat indisponível (Ollama não está instalado ou não está rodando)."
+        tim_pensando = False
+        return
     try:
         resultado = cliente_ollama.chat(
             model=MODELO_TIM,
