@@ -1313,3 +1313,18 @@ def _executar_fase6(character_name, genero):
         sys.exit()
 
     return "vitoria" if vitoria_alcancada else None
+
+
+def run_padrao():
+    """Roda a Fase 6 isolada, fora do menu geral, com o Personagem 1 como
+    opção padrão (genero="m") -- útil para testar esta fase sozinha
+    (ex: `python fase_6.py`) sem precisar abrir o jogo completo nem passar
+    por nenhum menu."""
+    return Jogo(character_name="Jogador", genero="m").executar()
+
+
+# =====================================================================
+# PONTO DE ENTRADA DO PROGRAMA (rodando este arquivo sozinho)
+# =====================================================================
+if __name__ == "__main__":
+    run_padrao()
