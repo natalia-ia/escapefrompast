@@ -31,7 +31,7 @@ git clone https://github.com/natalia-ia/escapefrompast.git
 cd escapefrompast/Pygamepip install -r requirements.tx
 ollama pull qwen2.5:1.5b
 3- Executar o jogo:
-cd menupython jogo.py
+cd menupython main.py
  
 
 O diferencial do “Escape.from_past()” é que ele caracteriza-se por ser um jogo capaz de unir o desenvolvimento de raciocínio lógico do jogador com conhecimentos fundamentais da história computacional, tornando-se educativo e interativo em sua essência.
