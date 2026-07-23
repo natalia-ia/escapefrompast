@@ -448,7 +448,7 @@ class Jogo:
 
         # --- Sprites de cena ---
         self.img_computador = carregar_imagem(
-            ASSETS["computador"], (170, 200), (60, 60, 68), "MAINFRAME\n(fechado)",
+            ASSETS["computador"], (128, 135), (60, 60, 68), "MAINFRAME\n(fechado)",
         )
         self.img_valvula = carregar_imagem(
             ASSETS["valvula"], (70, 100), LARANJA_VALVULA, "VÁLVULA",
@@ -506,9 +506,9 @@ class Jogo:
 
         # --- NPC (Tommy Flowers, engenheiro do Colossus) ---
         self.img_npc = carregar_imagem(
-            ASSETS["npc"], (138, 288), (110, 90, 130), "NPC",
+            ASSETS["npc"], (168, 288), (110, 90, 130), "NPC",
         )
-        self.rect_npc = self.img_npc.get_rect(midleft=(500, ALTURA - 180))
+        self.rect_npc = self.img_npc.get_rect(midleft=(410, ALTURA - 175))
         self.npc_chat = NPCChatbot(
             rect_npc=self.rect_npc,
             nome_npc="Tommy Flowers",
@@ -542,7 +542,7 @@ class Jogo:
 
         # --- Elementos da CENA 1 ---
         self.limites_sala = pygame.Rect(0, 0, LARGURA, ALTURA)
-        self.rect_computador = self.img_computador.get_rect(midright=(LARGURA - 60, ALTURA - 240))
+        self.rect_computador = self.img_computador.get_rect(midright=(LARGURA - 232, ALTURA - 170))
         self.ponto_interacao_computador = (
             self.rect_computador.left - 40,
             self.rect_computador.bottom - 20,
